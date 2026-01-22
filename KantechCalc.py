@@ -7,6 +7,48 @@ from typing import List, Dict, Tuple, Optional
 import json
 import os
 
+# Theme configuration
+THEMES = {
+    "light": {
+        "bg": "#ffffff",
+        "fg": "#000000",
+        "primary": "#2c3e50",
+        "secondary": "#3498db",
+        "accent": "#e74c3c",
+        "success": "#27ae60",
+        "warning": "#f39c12",
+        "tree_bg": "#f8f9fa",
+        "tree_fg": "#212529",
+        "tree_selected": "#3498db",
+        "button_bg": "#3498db",
+        "button_fg": "#ffffff",
+        "text_bg": "#ffffff",
+        "text_fg": "#000000",
+        "border": "#dee2e6",
+        "tab_bg": "#f8f9fa",
+        "tab_selected": "#ffffff"
+    },
+    "dark": {
+        "bg": "#1a1a1a",
+        "fg": "#ffffff",
+        "primary": "#34495e",
+        "secondary": "#2980b9",
+        "accent": "#c0392b",
+        "success": "#229954",
+        "warning": "#d68910",
+        "tree_bg": "#2c3e50",
+        "tree_fg": "#ecf0f1",
+        "tree_selected": "#2980b9",
+        "button_bg": "#2980b9",
+        "button_fg": "#ffffff",
+        "text_bg": "#2c3e50",
+        "text_fg": "#ecf0f1",
+        "border": "#34495e",
+        "tab_bg": "#2c3e50",
+        "tab_selected": "#34495e"
+    }
+}
+
 @dataclass
 class DCDevice:
     """Represents devices on a single DC line"""
@@ -119,67 +161,152 @@ class KantechDCCalculator:
             'gateway': {'name': 'Gateway License', 'cost': 500},
             'redundancy': {'name': 'Redundancy License', 'cost': 750}
         }
-    
-    def select_controllers_for_dc(self, dc_requirements: Dict) -> Dict:
-        total_readers = dc_requirements['readers']
-        best_solution = None
-        best_cost = float('inf')
-        
-        max_kt400 = max(1, total_readers // 4 + 2)
-        max_kt2 = max(1, total_readers // 2 + 2)
-        max_kt1 = max(1, total_readers + 2)
-        
-        for kt400 in range(max_kt400 + 1):
-            for kt2 in range(max_kt2 + 1):
-                for kt1 in range(max_kt1 + 1):
-                    readers_provided = (kt400 * 4 + kt2 * 2 + kt1 * 1)
-                    cost = (kt400 * 1400 + kt2 * 750 + kt1 * 450)
-                    
-                    if readers_provided >= total_readers and cost < best_cost:
-                        best_cost = cost
-                        best_solution = {
-                            'kt-400': kt400,
-                            'kt-2': kt2,
-                            'kt-1': kt1,
-                            'readers_provided': readers_provided,
-                            'cost': cost,
-                            'extra_readers': readers_provided - total_readers
-                        }
-        
-        if best_solution:
-            inputs_provided = (best_solution['kt-400'] * 16 + 
-                             best_solution['kt-2'] * 8 + 
-                             best_solution['kt-1'] * 4)
-            outputs_provided = (best_solution['kt-400'] * 4 + 
-                              best_solution['kt-2'] * 2 + 
-                              best_solution['kt-1'] * 2)
-            
-            return {
-                **best_solution,
-                'inputs_provided': inputs_provided,
-                'outputs_provided': outputs_provided
-            }
-        
-        return None
+
+
+class ModernButton(ttk.Button):
+    """Custom styled button"""
+    def __init__(self, parent, **kwargs):
+        super().__init__(parent, **kwargs)
+        self.configure(style='Modern.TButton')
 
 
 class DCApp:
     def __init__(self, root):
         self.root = root
         self.calculator = KantechDCCalculator()
+        self.current_theme = "light"
+        self.setup_styles()
         self.setup_ui()
         
+    def setup_styles(self):
+        """Setup ttk styles for both themes"""
+        self.style = ttk.Style()
+        
+        # Configure modern button style
+        self.style.configure('Modern.TButton',
+                           padding=10,
+                           relief="flat",
+                           font=('Segoe UI', 10))
+        
+        # Configure Treeview style
+        self.style.configure('Modern.Treeview',
+                           rowheight=25,
+                           fieldbackground=THEMES[self.current_theme]["tree_bg"])
+        self.style.configure('Modern.Treeview.Heading',
+                           font=('Segoe UI', 10, 'bold'))
+        
+        # Configure Notebook style
+        self.style.configure('Modern.TNotebook',
+                           background=THEMES[self.current_theme]["tab_bg"])
+        self.style.configure('Modern.TNotebook.Tab',
+                           padding=[15, 5],
+                           font=('Segoe UI', 10))
+        
+        # Configure LabelFrame style
+        self.style.configure('Modern.TLabelframe',
+                           background=THEMES[self.current_theme]["bg"],
+                           foreground=THEMES[self.current_theme]["fg"])
+        self.style.configure('Modern.TLabelframe.Label',
+                           font=('Segoe UI', 10, 'bold'),
+                           background=THEMES[self.current_theme]["bg"],
+                           foreground=THEMES[self.current_theme]["fg"])
+    
+    def apply_theme(self, theme_name):
+        """Apply the selected theme to all widgets"""
+        self.current_theme = theme_name
+        theme = THEMES[theme_name]
+        
+        # Apply to root window
+        self.root.configure(bg=theme["bg"])
+        
+        # Apply theme to all widgets
+        self.apply_widget_theme(self.root, theme)
+        
+        # Update specific widget colors
+        if hasattr(self, 'dc_tree'):
+            self.dc_tree.configure(bg=theme["tree_bg"], fg=theme["tree_fg"])
+        
+        if hasattr(self, 'kantech_results'):
+            self.kantech_results.configure(bg=theme["text_bg"], fg=theme["text_fg"])
+        
+        if hasattr(self, 'swh_results'):
+            self.swh_results.configure(bg=theme["text_bg"], fg=theme["text_fg"])
+        
+        if hasattr(self, 'license_results'):
+            self.license_results.configure(bg=theme["text_bg"], fg=theme["text_fg"])
+        
+        if hasattr(self, 'summary_text'):
+            self.summary_text.configure(bg=theme["text_bg"], fg=theme["text_fg"])
+        
+        # Update status bar
+        if hasattr(self, 'status_bar'):
+            self.status_bar.configure(background=theme["primary"], foreground=theme["fg"])
+    
+    def apply_widget_theme(self, widget, theme):
+        """Recursively apply theme to all widgets"""
+        try:
+            widget_type = widget.winfo_class()
+            
+            if widget_type in ('TFrame', 'TLabelframe'):
+                widget.configure(background=theme["bg"])
+            elif widget_type == 'TLabel':
+                widget.configure(background=theme["bg"], foreground=theme["fg"])
+            elif widget_type == 'TButton':
+                widget.configure(style='Modern.TButton')
+            elif widget_type == 'TRadiobutton':
+                widget.configure(background=theme["bg"], foreground=theme["fg"])
+            elif widget_type == 'TNotebook':
+                widget.configure(style='Modern.TNotebook')
+            
+            # Apply to children
+            for child in widget.winfo_children():
+                self.apply_widget_theme(child, theme)
+        except:
+            pass
+    
     def setup_ui(self):
         self.root.title("Access Control System Calculator")
-        self.root.geometry("1200x700")
+        self.root.geometry("1400x800")
+        self.root.minsize(1200, 700)
         
-        # Configure styles
-        style = ttk.Style()
-        style.theme_use('clam')
+        # Configure grid weights for main window
+        self.root.grid_rowconfigure(0, weight=1)
+        self.root.grid_columnconfigure(0, weight=1)
+        
+        # Create main container
+        main_container = ttk.Frame(self.root)
+        main_container.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        main_container.grid_rowconfigure(0, weight=1)
+        main_container.grid_columnconfigure(0, weight=1)
+        
+        # Header frame with title and theme selector
+        header_frame = ttk.Frame(main_container)
+        header_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        header_frame.grid_columnconfigure(0, weight=1)
+        
+        # Title
+        title_label = ttk.Label(header_frame, 
+                               text="Access Control System Calculator", 
+                               font=('Segoe UI', 20, 'bold'))
+        title_label.grid(row=0, column=0, sticky="w")
+        
+        # Theme selector
+        theme_frame = ttk.Frame(header_frame)
+        theme_frame.grid(row=0, column=1, sticky="e")
+        
+        ttk.Label(theme_frame, text="Theme:", font=('Segoe UI', 10)).pack(side="left", padx=(0, 5))
+        self.theme_var = tk.StringVar(value="light")
+        theme_combo = ttk.Combobox(theme_frame, 
+                                  textvariable=self.theme_var, 
+                                  values=["light", "dark"], 
+                                  state="readonly",
+                                  width=10)
+        theme_combo.pack(side="left")
+        theme_combo.bind('<<ComboboxSelected>>', lambda e: self.apply_theme(self.theme_var.get()))
         
         # Create notebook for tabs
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill='both', expand=True, padx=10, pady=10)
+        self.notebook = ttk.Notebook(main_container, style='Modern.TNotebook')
+        self.notebook.grid(row=1, column=0, sticky="nsew")
         
         # Create tabs
         self.setup_dc_tab()
@@ -189,10 +316,21 @@ class DCApp:
         self.setup_summary_tab()
         
         # Status bar
+        status_container = ttk.Frame(main_container)
+        status_container.grid(row=2, column=0, sticky="ew", pady=(10, 0))
+        
         self.status_var = tk.StringVar()
         self.status_var.set("Ready")
-        status_bar = ttk.Label(self.root, textvariable=self.status_var, relief='sunken', anchor='w')
-        status_bar.pack(side='bottom', fill='x', padx=10, pady=5)
+        self.status_bar = ttk.Label(status_container, 
+                                   textvariable=self.status_var, 
+                                   relief='flat',
+                                   anchor='w',
+                                   padding=5,
+                                   font=('Segoe UI', 9))
+        self.status_bar.pack(fill='x')
+        
+        # Apply initial theme
+        self.apply_theme("light")
     
     def setup_dc_tab(self):
         """Setup DC Line Configuration tab"""
@@ -200,243 +338,426 @@ class DCApp:
         self.notebook.add(self.dc_tab, text="DC Line Configuration")
         
         # Top frame for controls
-        control_frame = ttk.Frame(self.dc_tab)
-        control_frame.pack(fill='x', padx=10, pady=10)
+        control_frame = ttk.LabelFrame(self.dc_tab, text="DC Line Controls", padding=15)
+        control_frame.pack(fill='x', padx=10, pady=(10, 5))
         
-        ttk.Button(control_frame, text="Add New DC Line", 
-                  command=self.add_dc_line).pack(side='left', padx=5)
-        ttk.Button(control_frame, text="Edit Selected", 
-                  command=self.edit_dc_line).pack(side='left', padx=5)
-        ttk.Button(control_frame, text="Delete Selected", 
-                  command=self.delete_dc_line).pack(side='left', padx=5)
-        ttk.Button(control_frame, text="Clear All", 
-                  command=self.clear_all_dc).pack(side='left', padx=5)
+        # Control buttons with icons
+        button_frame = ttk.Frame(control_frame)
+        button_frame.pack(fill='x')
+        
+        button_data = [
+            ("➕ Add New DC Line", self.add_dc_line),
+            ("✏️ Edit Selected", self.edit_dc_line),
+            ("🗑️ Delete Selected", self.delete_dc_line),
+            ("🗑️ Clear All", self.clear_all_dc)
+        ]
+        
+        for text, command in button_data:
+            btn = ModernButton(button_frame, text=text, command=command)
+            btn.pack(side='left', padx=5, pady=5, fill='x', expand=True)
+        
+        # DC Lines treeview frame
+        tree_frame = ttk.LabelFrame(self.dc_tab, text="DC Lines Configuration", padding=10)
+        tree_frame.pack(fill='both', expand=True, padx=10, pady=5)
+        
+        # Create scrollable frame for treeview
+        tree_container = ttk.Frame(tree_frame)
+        tree_container.pack(fill='both', expand=True)
         
         # DC Lines treeview
         columns = ("DC#", "Smart Card", "Fingerprint", "Door Sensor", "Mag Lock", 
                   "Elec Lock", "REX", "Push Button", "Break Glass", "Buzzer", 
                   "DDL", "DDL Sensors", "Readers", "Inputs", "Outputs")
         
-        self.dc_tree = ttk.Treeview(self.dc_tab, columns=columns, show='headings', height=15)
+        self.dc_tree = ttk.Treeview(tree_container, 
+                                   columns=columns, 
+                                   show='headings', 
+                                   height=12,
+                                   style='Modern.Treeview')
         
         # Configure columns
-        col_widths = [40, 70, 70, 70, 70, 70, 40, 80, 70, 50, 40, 80, 60, 50, 60]
+        col_widths = [45, 80, 80, 80, 80, 80, 45, 90, 80, 55, 45, 85, 65, 55, 65]
         for idx, (col, width) in enumerate(zip(columns, col_widths)):
             self.dc_tree.heading(col, text=col)
             self.dc_tree.column(col, width=width, anchor='center')
         
-        # Add scrollbar
-        scrollbar = ttk.Scrollbar(self.dc_tab, orient='vertical', command=self.dc_tree.yview)
-        self.dc_tree.configure(yscrollcommand=scrollbar.set)
+        # Add scrollbars
+        y_scrollbar = ttk.Scrollbar(tree_container, orient='vertical', command=self.dc_tree.yview)
+        x_scrollbar = ttk.Scrollbar(tree_container, orient='horizontal', command=self.dc_tree.xview)
+        self.dc_tree.configure(yscrollcommand=y_scrollbar.set, xscrollcommand=x_scrollbar.set)
         
-        # Pack tree and scrollbar
-        self.dc_tree.pack(side='left', fill='both', expand=True, padx=(10, 0), pady=10)
-        scrollbar.pack(side='right', fill='y', padx=(0, 10), pady=10)
+        # Grid layout for tree and scrollbars
+        self.dc_tree.grid(row=0, column=0, sticky="nsew")
+        y_scrollbar.grid(row=0, column=1, sticky="ns")
+        x_scrollbar.grid(row=1, column=0, sticky="ew")
         
-        # Info label
+        # Configure grid weights
+        tree_container.grid_rowconfigure(0, weight=1)
+        tree_container.grid_columnconfigure(0, weight=1)
+        
+        # Info frame
+        info_frame = ttk.Frame(self.dc_tab)
+        info_frame.pack(fill='x', padx=10, pady=(5, 10))
+        
         self.dc_info = tk.StringVar()
         self.dc_info.set("No DC lines configured")
-        ttk.Label(self.dc_tab, textvariable=self.dc_info).pack(pady=5)
+        info_label = ttk.Label(info_frame, 
+                              textvariable=self.dc_info, 
+                              font=('Segoe UI', 10),
+                              foreground=THEMES[self.current_theme]["accent"])
+        info_label.pack(anchor='w')
     
     def setup_kantech_tab(self):
         """Setup Kantech Calculation tab"""
         self.kantech_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.kantech_tab, text="Kantech System")
         
+        # Configure grid
+        self.kantech_tab.grid_columnconfigure(0, weight=3)
+        self.kantech_tab.grid_columnconfigure(1, weight=1)
+        self.kantech_tab.grid_rowconfigure(0, weight=1)
+        
         # Left frame for calculations
-        left_frame = ttk.Frame(self.kantech_tab)
-        left_frame.pack(side='left', fill='both', expand=True, padx=10, pady=10)
+        left_frame = ttk.LabelFrame(self.kantech_tab, text="Calculations", padding=15)
+        left_frame.grid(row=0, column=0, sticky="nsew", padx=(10, 5), pady=10)
+        left_frame.grid_rowconfigure(2, weight=1)
+        left_frame.grid_columnconfigure(0, weight=1)
         
+        # Title
         ttk.Label(left_frame, text="KANTECH SYSTEM CALCULATIONS", 
-                 font=('Arial', 12, 'bold')).pack(pady=10)
+                 font=('Segoe UI', 12, 'bold')).grid(row=0, column=0, pady=(0, 15), sticky="w")
         
-        ttk.Button(left_frame, text="Calculate Selected DC Line", 
-                  command=self.calc_kantech_single).pack(pady=5, fill='x')
-        ttk.Button(left_frame, text="Calculate All DC Lines", 
-                  command=self.calc_kantech_all).pack(pady=5, fill='x')
+        # Buttons frame
+        button_frame = ttk.Frame(left_frame)
+        button_frame.grid(row=1, column=0, pady=10, sticky="ew")
+        button_frame.grid_columnconfigure(0, weight=1)
+        button_frame.grid_columnconfigure(1, weight=1)
+        
+        ModernButton(button_frame, text="📊 Calculate Selected DC Line", 
+                    command=self.calc_kantech_single).grid(row=0, column=0, padx=(0, 5), sticky="ew")
+        ModernButton(button_frame, text="📈 Calculate All DC Lines", 
+                    command=self.calc_kantech_all).grid(row=0, column=1, padx=(5, 0), sticky="ew")
         
         # Results frame
-        results_frame = ttk.LabelFrame(left_frame, text="Results", padding=10)
-        results_frame.pack(fill='both', expand=True, pady=10)
+        results_frame = ttk.LabelFrame(left_frame, text="Calculation Results", padding=10)
+        results_frame.grid(row=2, column=0, sticky="nsew", pady=(10, 0))
+        results_frame.grid_rowconfigure(0, weight=1)
+        results_frame.grid_columnconfigure(0, weight=1)
         
-        self.kantech_results = tk.Text(results_frame, height=20, width=50)
-        self.kantech_results.pack(fill='both', expand=True)
+        self.kantech_results = tk.Text(results_frame, height=20, width=50, 
+                                      font=('Consolas', 10), wrap='word')
+        self.kantech_results.grid(row=0, column=0, sticky="nsew")
+        
+        # Add scrollbar to results
+        results_scrollbar = ttk.Scrollbar(results_frame, orient='vertical', command=self.kantech_results.yview)
+        self.kantech_results.configure(yscrollcommand=results_scrollbar.set)
+        results_scrollbar.grid(row=0, column=1, sticky="ns")
         
         # Right frame for summary
-        right_frame = ttk.Frame(self.kantech_tab)
-        right_frame.pack(side='right', fill='both', padx=10, pady=10)
+        right_frame = ttk.LabelFrame(self.kantech_tab, text="Controller Information", padding=15)
+        right_frame.grid(row=0, column=1, sticky="nsew", padx=(5, 10), pady=10)
+        right_frame.grid_rowconfigure(1, weight=1)
+        right_frame.grid_columnconfigure(0, weight=1)
         
         ttk.Label(right_frame, text="KANTECH CONTROLLERS", 
-                 font=('Arial', 10, 'bold')).pack(pady=5)
+                 font=('Segoe UI', 11, 'bold')).grid(row=0, column=0, pady=(0, 10), sticky="w")
         
-        controllers_text = """
-        kt-1: 1 reader, 4 inputs, 2 outputs - $450
-        kt-2: 2 readers, 8 inputs, 2 outputs - $750
-        kt-400: 4 readers, 16 inputs, 4 outputs - $1400
+        controllers_text = """╔══════════════════════════════════╗
+║ KANTECH CONTROLLERS             ║
+╠══════════════════════════════════╣
+║ kt-1:                           ║
+║   • 1 reader, 4 inputs, 2 outputs║
+║   • Cost: $450                  ║
+║                                 ║
+║ kt-2:                           ║
+║   • 2 readers, 8 inputs, 2 outputs║
+║   • Cost: $750                  ║
+║                                 ║
+║ kt-400:                         ║
+║   • 4 readers, 16 inputs, 4 outputs║
+║   • Cost: $1400                 ║
+╠══════════════════════════════════╣
+║ EXPANSION MODULES:              ║
+║                                 ║
+║ • inout16 series: $447 each     ║
+║ • in16: 16 inputs - $470        ║
+║ • r8: 8 outputs - $470          ║
+╠══════════════════════════════════╣
+║ SELECTION METHOD:               ║
+║                                 ║
+║ Based on readers only, then add ║
+║ expansion modules for I/O needs.║
+╚══════════════════════════════════╝"""
         
-        Expansion Modules:
-        • inout16 series: $447 each
-        • in16: 16 inputs - $470
-        • r8: 8 outputs - $470
-        
-        Controller Selection:
-        Based on readers only, then add
-        expansion modules for I/O needs.
-        """
-        
-        controller_info = tk.Text(right_frame, height=20, width=40, wrap='word')
+        controller_info = tk.Text(right_frame, height=30, width=40, 
+                                 font=('Consolas', 9), wrap='word')
         controller_info.insert('1.0', controllers_text)
         controller_info.config(state='disabled')
-        controller_info.pack(fill='both', expand=True)
+        controller_info.grid(row=1, column=0, sticky="nsew")
     
     def setup_swh_tab(self):
         """Setup SWH GSTAR Calculation tab"""
         self.swh_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.swh_tab, text="SWH GSTAR System")
         
+        # Configure grid
+        self.swh_tab.grid_columnconfigure(0, weight=3)
+        self.swh_tab.grid_columnconfigure(1, weight=1)
+        self.swh_tab.grid_rowconfigure(0, weight=1)
+        
         # Left frame for calculations
-        left_frame = ttk.Frame(self.swh_tab)
-        left_frame.pack(side='left', fill='both', expand=True, padx=10, pady=10)
+        left_frame = ttk.LabelFrame(self.swh_tab, text="Calculations", padding=15)
+        left_frame.grid(row=0, column=0, sticky="nsew", padx=(10, 5), pady=10)
+        left_frame.grid_rowconfigure(2, weight=1)
+        left_frame.grid_columnconfigure(0, weight=1)
         
+        # Title
         ttk.Label(left_frame, text="SWH GSTAR CALCULATIONS", 
-                 font=('Arial', 12, 'bold')).pack(pady=10)
+                 font=('Segoe UI', 12, 'bold')).grid(row=0, column=0, pady=(0, 15), sticky="w")
         
-        ttk.Button(left_frame, text="Calculate Selected DC Line", 
-                  command=self.calc_swh_single).pack(pady=5, fill='x')
-        ttk.Button(left_frame, text="Calculate All DC Lines", 
-                  command=self.calc_swh_all).pack(pady=5, fill='x')
-        ttk.Button(left_frame, text="Calculate SWH License", 
-                  command=self.calc_swh_license).pack(pady=5, fill='x')
+        # Buttons frame
+        button_frame = ttk.Frame(left_frame)
+        button_frame.grid(row=1, column=0, pady=10, sticky="ew")
+        button_frame.grid_columnconfigure(0, weight=1)
+        button_frame.grid_columnconfigure(1, weight=1)
+        button_frame.grid_columnconfigure(2, weight=1)
+        
+        ModernButton(button_frame, text="📊 Calculate Selected", 
+                    command=self.calc_swh_single).grid(row=0, column=0, padx=(0, 3), sticky="ew")
+        ModernButton(button_frame, text="📈 Calculate All", 
+                    command=self.calc_swh_all).grid(row=0, column=1, padx=3, sticky="ew")
+        ModernButton(button_frame, text="📋 Calculate License", 
+                    command=self.calc_swh_license).grid(row=0, column=2, padx=(3, 0), sticky="ew")
         
         # Results frame
-        results_frame = ttk.LabelFrame(left_frame, text="Results", padding=10)
-        results_frame.pack(fill='both', expand=True, pady=10)
+        results_frame = ttk.LabelFrame(left_frame, text="Calculation Results", padding=10)
+        results_frame.grid(row=2, column=0, sticky="nsew", pady=(10, 0))
+        results_frame.grid_rowconfigure(0, weight=1)
+        results_frame.grid_columnconfigure(0, weight=1)
         
-        self.swh_results = tk.Text(results_frame, height=20, width=50)
-        self.swh_results.pack(fill='both', expand=True)
+        self.swh_results = tk.Text(results_frame, height=20, width=50, 
+                                  font=('Consolas', 10), wrap='word')
+        self.swh_results.grid(row=0, column=0, sticky="nsew")
         
-        # Right frame for GSTAR info
-        right_frame = ttk.Frame(self.swh_tab)
-        right_frame.pack(side='right', fill='both', padx=10, pady=10)
+        # Add scrollbar to results
+        results_scrollbar = ttk.Scrollbar(results_frame, orient='vertical', command=self.swh_results.yview)
+        self.swh_results.configure(yscrollcommand=results_scrollbar.set)
+        results_scrollbar.grid(row=0, column=1, sticky="ns")
+        
+        # Right frame for summary
+        right_frame = ttk.LabelFrame(self.swh_tab, text="GSTAR Information", padding=15)
+        right_frame.grid(row=0, column=1, sticky="nsew", padx=(5, 10), pady=10)
+        right_frame.grid_rowconfigure(1, weight=1)
+        right_frame.grid_columnconfigure(0, weight=1)
         
         ttk.Label(right_frame, text="GSTAR CONTROLLERS", 
-                 font=('Arial', 10, 'bold')).pack(pady=5)
+                 font=('Segoe UI', 11, 'bold')).grid(row=0, column=0, pady=(0, 10), sticky="w")
         
-        gstar_text = """
-        GSTAR Controllers:
-        • GSTAR004 (4R): 4 readers, 8I/4O - $1,395
-        • GSTAR004 (8R): 8 readers, 16I/12O - $2,123
-        • GSTAR008: 8 readers, 24I/8O - $3,125 (1 ACM)
-        • GSTAR016: 16 readers, 48I/16O - $4,166 (2 ACM)
-        • GSTAR016 (24R): 24 readers, 72I/24O - $5,166 (3 ACM)
-        • GSTAR016 (32R): 32 readers, 96I/32O - $6,166 (4 ACM)
+        gstar_text = """╔══════════════════════════════════╗
+║ GSTAR CONTROLLERS               ║
+╠══════════════════════════════════╣
+║ GSTAR004 (4R):                  ║
+║   • 4 readers, 8I/4O           ║
+║   • $1,395                      ║
+║                                 ║
+║ GSTAR004 (8R):                  ║
+║   • 8 readers, 16I/12O         ║
+║   • $2,123                      ║
+║                                 ║
+║ GSTAR008:                       ║
+║   • 8 readers, 24I/8O          ║
+║   • $3,125 (1 ACM)              ║
+║                                 ║
+║ GSTAR016:                       ║
+║   • 16 readers, 48I/16O        ║
+║   • $4,166 (2 ACM)              ║
+║                                 ║
+║ GSTAR016 (24R):                 ║
+║   • 24 readers, 72I/24O        ║
+║   • $5,166 (3 ACM)              ║
+║                                 ║
+║ GSTAR016 (32R):                 ║
+║   • 32 readers, 96I/32O        ║
+║   • $6,166 (4 ACM)              ║
+╠══════════════════════════════════╣
+║ EXPANSION MODULES:              ║
+║                                 ║
+║ • AS0073-000: 8 inputs - $333   ║
+║ • AS0074-000: 8 outputs - $395  ║
+╚══════════════════════════════════╝"""
         
-        Expansion Modules:
-        • AS0073-000: 8 inputs - $333
-        • AS0074-000: 8 outputs - $395
-        
-        License Tiers (CC9000):
-        • SL: 16 readers
-        • SM: 32 readers
-        • SN: 64 readers
-        • SP: 128 readers
-        • SQ: 256 readers
-        • SR: 512 readers
-        • SRP: 1000 readers
-        • SS: 2500 readers
-        • SSP: 3500 readers
-        • ST: 5000 readers
-        """
-        
-        gstar_info = tk.Text(right_frame, height=30, width=40, wrap='word')
+        gstar_info = tk.Text(right_frame, height=30, width=40, 
+                            font=('Consolas', 9), wrap='word')
         gstar_info.insert('1.0', gstar_text)
         gstar_info.config(state='disabled')
-        gstar_info.pack(fill='both', expand=True)
+        gstar_info.grid(row=1, column=0, sticky="nsew")
     
     def setup_license_tab(self):
         """Setup License Calculation tab"""
         self.license_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.license_tab, text="License")
         
-        main_frame = ttk.Frame(self.license_tab)
-        main_frame.pack(fill='both', expand=True, padx=20, pady=20)
+        # Main frame with padding
+        main_frame = ttk.Frame(self.license_tab, padding=20)
+        main_frame.pack(fill='both', expand=True)
+        main_frame.grid_rowconfigure(1, weight=1)
+        main_frame.grid_columnconfigure(0, weight=1)
         
-        ttk.Label(main_frame, text="LICENSE CALCULATION", 
-                 font=('Arial', 14, 'bold')).pack(pady=20)
+        # Title
+        title_frame = ttk.Frame(main_frame)
+        title_frame.grid(row=0, column=0, sticky="ew", pady=(0, 20))
+        
+        ttk.Label(title_frame, text="📋 LICENSE CALCULATION", 
+                 font=('Segoe UI', 14, 'bold')).pack(anchor='w')
+        ttk.Label(title_frame, text="Configure system requirements and calculate license needs",
+                 font=('Segoe UI', 10)).pack(anchor='w')
+        
+        # Configuration section
+        config_frame = ttk.LabelFrame(main_frame, text="System Configuration", padding=15)
+        config_frame.grid(row=1, column=0, sticky="nsew", pady=(0, 20))
+        config_frame.grid_columnconfigure(0, weight=1)
+        config_frame.grid_columnconfigure(1, weight=1)
         
         # Redundancy selection
-        ttk.Label(main_frame, text="System Configuration:").pack(pady=5)
+        redundancy_frame = ttk.Frame(config_frame)
+        redundancy_frame.grid(row=0, column=0, sticky="w", padx=10, pady=10)
+        
+        ttk.Label(redundancy_frame, text="System Type:", 
+                 font=('Segoe UI', 10, 'bold')).pack(anchor='w', pady=(0, 10))
+        
         self.redundancy_var = tk.BooleanVar(value=False)
-        ttk.Radiobutton(main_frame, text="Non-Redundant System", 
-                       variable=self.redundancy_var, value=False).pack()
-        ttk.Radiobutton(main_frame, text="Redundant System", 
-                       variable=self.redundancy_var, value=True).pack()
+        ttk.Radiobutton(redundancy_frame, text="🏢 Non-Redundant System", 
+                       variable=self.redundancy_var, value=False,
+                       style='TRadiobutton').pack(anchor='w', pady=2)
+        ttk.Radiobutton(redundancy_frame, text="🔄 Redundant System", 
+                       variable=self.redundancy_var, value=True,
+                       style='TRadiobutton').pack(anchor='w', pady=2)
         
-        # Info text
-        info_text = """
-        License Rules:
+        # Info panel
+        info_frame = ttk.Frame(config_frame)
+        info_frame.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
         
-        1. NON-REDUNDANT SYSTEMS:
-           • ≤ 32 controllers → Kantech Special License
-           • > 32 controllers → Kantech Corporate License
+        info_text = """📋 LICENSE RULES:
+────────────────────
+1. NON-REDUNDANT SYSTEMS:
+   • ≤ 32 controllers → Kantech Special License
+   • > 32 controllers → Kantech Corporate License
+
+2. REDUNDANT SYSTEMS:
+   • Migrate to Global License (replaces Special/Corporate)
+   • Add Gateway License (for server communication)
+   • Add Redundancy License (for failover capability)
+
+💡 Note: License costs are included in controller costs
+        for non-redundant systems."""
         
-        2. REDUNDANT SYSTEMS:
-           • Migrate to Global License (replaces Special/Corporate)
-           • Add Gateway License (for server communication)
-           • Add Redundancy License (for failover capability)
-        
-        Note: License costs are included in controller costs
-        for non-redundant systems.
-        """
-        
-        info_label = ttk.Label(main_frame, text=info_text, justify='left')
-        info_label.pack(pady=20)
+        info_label = ttk.Label(info_frame, text=info_text, justify='left',
+                              font=('Consolas', 9))
+        info_label.pack(anchor='w')
         
         # Calculate button
-        ttk.Button(main_frame, text="Calculate License Requirements", 
-                  command=self.calc_license).pack(pady=10)
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=2, column=0, sticky="ew", pady=(0, 20))
         
-        # Results text
-        self.license_results = tk.Text(main_frame, height=15, width=80)
-        self.license_results.pack(fill='both', expand=True, pady=10)
+        ModernButton(button_frame, text="🧮 Calculate License Requirements", 
+                    command=self.calc_license).pack(pady=10)
+        
+        # Results section
+        results_frame = ttk.LabelFrame(main_frame, text="Results", padding=10)
+        results_frame.grid(row=3, column=0, sticky="nsew")
+        results_frame.grid_rowconfigure(0, weight=1)
+        results_frame.grid_columnconfigure(0, weight=1)
+        
+        self.license_results = tk.Text(results_frame, height=15, 
+                                      font=('Consolas', 10), wrap='word')
+        self.license_results.grid(row=0, column=0, sticky="nsew")
+        
+        # Add scrollbar to results
+        results_scrollbar = ttk.Scrollbar(results_frame, orient='vertical', 
+                                         command=self.license_results.yview)
+        self.license_results.configure(yscrollcommand=results_scrollbar.set)
+        results_scrollbar.grid(row=0, column=1, sticky="ns")
     
     def setup_summary_tab(self):
         """Setup Summary and Export tab"""
         self.summary_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.summary_tab, text="Summary & Export")
         
-        main_frame = ttk.Frame(self.summary_tab)
-        main_frame.pack(fill='both', expand=True, padx=20, pady=20)
+        # Main frame
+        main_frame = ttk.Frame(self.summary_tab, padding=20)
+        main_frame.pack(fill='both', expand=True)
+        main_frame.grid_rowconfigure(1, weight=1)
+        main_frame.grid_columnconfigure(0, weight=1)
         
-        ttk.Label(main_frame, text="SYSTEM SUMMARY", 
-                 font=('Arial', 14, 'bold')).pack(pady=20)
+        # Title
+        title_frame = ttk.Frame(main_frame)
+        title_frame.grid(row=0, column=0, sticky="ew", pady=(0, 20))
         
-        # Summary text
-        self.summary_text = tk.Text(main_frame, height=20, width=80)
-        self.summary_text.pack(fill='both', expand=True, pady=10)
+        ttk.Label(title_frame, text="📊 SYSTEM SUMMARY", 
+                 font=('Segoe UI', 16, 'bold')).pack(anchor='w')
+        ttk.Label(title_frame, text="View complete system summary and export results",
+                 font=('Segoe UI', 10)).pack(anchor='w')
+        
+        # Summary text area
+        summary_frame = ttk.LabelFrame(main_frame, text="System Summary", padding=10)
+        summary_frame.grid(row=1, column=0, sticky="nsew", pady=(0, 20))
+        summary_frame.grid_rowconfigure(0, weight=1)
+        summary_frame.grid_columnconfigure(0, weight=1)
+        
+        self.summary_text = tk.Text(summary_frame, height=20, 
+                                   font=('Consolas', 10), wrap='word')
+        self.summary_text.grid(row=0, column=0, sticky="nsew")
+        
+        # Add scrollbar to summary
+        summary_scrollbar = ttk.Scrollbar(summary_frame, orient='vertical', 
+                                         command=self.summary_text.yview)
+        self.summary_text.configure(yscrollcommand=summary_scrollbar.set)
+        summary_scrollbar.grid(row=0, column=1, sticky="ns")
         
         # Export buttons
-        button_frame = ttk.Frame(main_frame)
-        button_frame.pack(pady=10)
+        export_frame = ttk.LabelFrame(main_frame, text="Export Options", padding=15)
+        export_frame.grid(row=2, column=0, sticky="ew")
         
-        ttk.Button(button_frame, text="Update Summary", 
-                  command=self.update_summary).pack(side='left', padx=5)
-        ttk.Button(button_frame, text="Export Kantech Results", 
-                  command=self.export_kantech).pack(side='left', padx=5)
-        ttk.Button(button_frame, text="Export GSTAR Results", 
-                  command=self.export_gstar).pack(side='left', padx=5)
-        ttk.Button(button_frame, text="Export All Data", 
-                  command=self.export_all).pack(side='left', padx=5)
+        # Button grid
+        button_grid = ttk.Frame(export_frame)
+        button_grid.pack(fill='x')
+        
+        ModernButton(button_grid, text="🔄 Update Summary", 
+                    command=self.update_summary).grid(row=0, column=0, padx=5, pady=5, sticky="ew")
+        ModernButton(button_grid, text="💾 Export Kantech Results", 
+                    command=self.export_kantech).grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        ModernButton(button_grid, text="💾 Export GSTAR Results", 
+                    command=self.export_gstar).grid(row=0, column=2, padx=5, pady=5, sticky="ew")
+        ModernButton(button_grid, text="📦 Export All Data", 
+                    command=self.export_all).grid(row=0, column=3, padx=5, pady=5, sticky="ew")
+        
+        # Configure button grid columns
+        for i in range(4):
+            button_grid.grid_columnconfigure(i, weight=1)
+    
+    # All other methods remain EXACTLY THE SAME from here on...
+    # Only the UI setup methods were modified above
+    # The following methods are unchanged from the original code:
     
     def add_dc_line(self):
         """Open dialog to add new DC line"""
         dialog = tk.Toplevel(self.root)
         dialog.title("Add DC Line")
-        dialog.geometry("400x500")
+        dialog.geometry("400x550")
         dialog.transient(self.root)
         dialog.grab_set()
         
-        # Device entries
+        # Apply theme to dialog
+        self.apply_widget_theme(dialog, THEMES[self.current_theme])
+        
+        # Title
+        ttk.Label(dialog, text="Add New DC Line", 
+                 font=('Segoe UI', 12, 'bold')).pack(pady=(10, 20))
+        
+        # Device entries frame
+        entries_frame = ttk.Frame(dialog)
+        entries_frame.pack(fill='both', expand=True, padx=20)
+        
         devices = [
             ("INDOOR Smart Card Reader", 'smart_card'),
             ("Finger Print Reader", 'fingerprint'),
@@ -453,10 +774,13 @@ class DCApp:
         
         entries = {}
         for idx, (label, key) in enumerate(devices):
-            ttk.Label(dialog, text=label).grid(row=idx, column=0, padx=10, pady=5, sticky='w')
-            entry = ttk.Entry(dialog, width=10)
+            frame = ttk.Frame(entries_frame)
+            frame.pack(fill='x', pady=2)
+            
+            ttk.Label(frame, text=label, width=30, anchor='w').pack(side='left', padx=(0, 10))
+            entry = ttk.Entry(frame, width=10)
             entry.insert(0, '0')
-            entry.grid(row=idx, column=1, padx=10, pady=5)
+            entry.pack(side='right')
             entries[key] = entry
         
         def save_dc_line():
@@ -478,8 +802,12 @@ class DCApp:
             except ValueError:
                 messagebox.showerror("Error", "Please enter valid numbers")
         
-        ttk.Button(dialog, text="Save", command=save_dc_line).grid(
-            row=len(devices), column=0, columnspan=2, pady=20)
+        # Save button
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.pack(fill='x', pady=20, padx=20)
+        
+        ModernButton(btn_frame, text="💾 Save DC Line", 
+                    command=save_dc_line).pack(fill='x')
     
     def edit_dc_line(self):
         """Edit selected DC line"""
@@ -499,11 +827,21 @@ class DCApp:
         
         dialog = tk.Toplevel(self.root)
         dialog.title(f"Edit DC Line {dc_num}")
-        dialog.geometry("400x500")
+        dialog.geometry("400x550")
         dialog.transient(self.root)
         dialog.grab_set()
         
+        # Apply theme to dialog
+        self.apply_widget_theme(dialog, THEMES[self.current_theme])
+        
+        # Title
+        ttk.Label(dialog, text=f"Edit DC Line {dc_num}", 
+                 font=('Segoe UI', 12, 'bold')).pack(pady=(10, 20))
+        
         # Device entries with current values
+        entries_frame = ttk.Frame(dialog)
+        entries_frame.pack(fill='both', expand=True, padx=20)
+        
         devices = [
             ("INDOOR Smart Card Reader", 'smart_card'),
             ("Finger Print Reader", 'fingerprint'),
@@ -520,10 +858,13 @@ class DCApp:
         
         entries = {}
         for idx, (label, key) in enumerate(devices):
-            ttk.Label(dialog, text=label).grid(row=idx, column=0, padx=10, pady=5, sticky='w')
-            entry = ttk.Entry(dialog, width=10)
+            frame = ttk.Frame(entries_frame)
+            frame.pack(fill='x', pady=2)
+            
+            ttk.Label(frame, text=label, width=30, anchor='w').pack(side='left', padx=(0, 10))
+            entry = ttk.Entry(frame, width=10)
             entry.insert(0, str(getattr(dc_line, key)))
-            entry.grid(row=idx, column=1, padx=10, pady=5)
+            entry.pack(side='right')
             entries[key] = entry
         
         def save_changes():
@@ -541,8 +882,12 @@ class DCApp:
             except ValueError:
                 messagebox.showerror("Error", "Please enter valid numbers")
         
-        ttk.Button(dialog, text="Save Changes", command=save_changes).grid(
-            row=len(devices), column=0, columnspan=2, pady=20)
+        # Save button
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.pack(fill='x', pady=20, padx=20)
+        
+        ModernButton(btn_frame, text="💾 Save Changes", 
+                    command=save_changes).pack(fill='x')
     
     def delete_dc_line(self):
         """Delete selected DC line"""
@@ -741,8 +1086,8 @@ DETAILED BREAKDOWN:
         for result in all_results:
             result_text += f"""
 DC LINE {result['dc_num']}:
-  Controllers: kt-400({result['controllers']['kt-400']}) "
-               kt-2({result['controllers']['kt-2']}) "
+  Controllers: kt-400({result['controllers']['kt-400']}) 
+               kt-2({result['controllers']['kt-2']}) 
                kt-1({result['controllers']['kt-1']})
   Controller Cost: ${result['controllers']['cost']}
   Expansion Cost:  ${result['expansion_cost']}
@@ -1098,13 +1443,13 @@ DC LINES DETAIL:
             totals = dc_line.calculate_totals()
             summary_text += f"""
 DC Line {dc_line.dc_number}:
-  Devices: Smart Card({dc_line.smart_card}), "
-           Fingerprint({dc_line.fingerprint}), "
-           Door Sensor({dc_line.door_sensor}), "
-           Mag Lock({dc_line.magnetic_lock}), "
+  Devices: Smart Card({dc_line.smart_card}), 
+           Fingerprint({dc_line.fingerprint}), 
+           Door Sensor({dc_line.door_sensor}), 
+           Mag Lock({dc_line.magnetic_lock}), 
            Elec Lock({dc_line.electric_lock})
-  REX({dc_line.rex_button}), Push Button({dc_line.push_button}), "
-  Break Glass({dc_line.break_glass}), Buzzer({dc_line.buzzer}), "
+  REX({dc_line.rex_button}), Push Button({dc_line.push_button}), 
+  Break Glass({dc_line.break_glass}), Buzzer({dc_line.buzzer}), 
   DDL({dc_line.double_door_lock}), DDL Sensors({dc_line.ddl_sensors})
   Totals: {totals['readers']}R/{totals['inputs']}I/{totals['outputs']}O
   {'-'*40}"""

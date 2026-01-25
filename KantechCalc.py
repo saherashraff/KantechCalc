@@ -303,6 +303,7 @@ class KantechDCCalculatorGUI:
         # Current system status
         self.system_info_text = tk.Text(info_frame, height=8, width=80)
         self.system_info_text.pack(fill=tk.BOTH, expand=True)
+        # Initialize with current data
         self.update_system_info()
         
         # Quick actions frame
@@ -326,6 +327,7 @@ class KantechDCCalculatorGUI:
         # Overview text
         self.overview_text = scrolledtext.ScrolledText(overview_frame, height=15)
         self.overview_text.pack(fill=tk.BOTH, expand=True)
+        # Initialize with current data
         self.update_overview()
         
     def create_dc_lines_tab(self):
@@ -593,6 +595,8 @@ class KantechDCCalculatorGUI:
         
     def update_system_info(self):
         """Update system information display"""
+        # Enable for editing
+        self.system_info_text.config(state=tk.NORMAL)
         self.system_info_text.delete(1.0, tk.END)
         
         info = f"Current System Status:\n"
@@ -614,6 +618,8 @@ class KantechDCCalculatorGUI:
         
     def update_overview(self):
         """Update system overview"""
+        # Temporarily enable the widget for editing
+        self.overview_text.config(state=tk.NORMAL)
         self.overview_text.delete(1.0, tk.END)
         
         overview = "SYSTEM OVERVIEW\n"
@@ -643,6 +649,7 @@ class KantechDCCalculatorGUI:
             overview += "No door types defined\n"
         
         self.overview_text.insert(1.0, overview)
+        # Disable the widget again to prevent user editing
         self.overview_text.config(state=tk.DISABLED)
         
     def update_dc_lines_list(self):
@@ -2264,6 +2271,9 @@ class KantechDCCalculatorGUI:
         # Initial updates
         self.update_dc_lines_list()
         self.update_door_types_list()
+        # Also update main tab displays
+        self.update_system_info()
+        self.update_overview()
         
         self.root.mainloop()
 

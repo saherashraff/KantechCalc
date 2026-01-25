@@ -23,10 +23,12 @@ class DCDevice:
     buzzer: int = 0
     double_door_lock: int = 0  # Counts as BOTH 1 input AND 1 output
     ddl_sensors: int = 0
+    unmonitored_single_magnetic_lock: int = 0  # New: counts as output
+    unmonitored_double_magnetic_lock: int = 0  # New: counts as output
     
     def calculate_totals(self):
         """Calculate readers, inputs, outputs for this DC line"""
-        # Readers = Smart Card + Fingerprint (Excel Column M)
+        # Readers = Card Reader + Bio-metric Reader
         readers = self.smart_card + self.fingerprint
         
         # Inputs = Door Sensor + REX Button + Push Button + Break Glass + Buzzer + Magnetic Lock + DDL Sensors + Double Door Lock
@@ -35,10 +37,13 @@ class DCDevice:
                  self.break_glass + self.buzzer + self.magnetic_lock + 
                  self.ddl_sensors + self.double_door_lock)
         
-        # Outputs = Magnetic Lock + Electric Lock + DDL Sensors + Double Door Lock
+        # Outputs = Magnetic Lock + Electric Lock + DDL Sensors + Double Door Lock + 
+        #           Unmonitored Single Magnetic Lock + Unmonitored Double Magnetic Lock
         # NOTE: Double Door Lock counts as 1 output
         outputs = (self.magnetic_lock + self.electric_lock + 
-                  self.ddl_sensors + self.double_door_lock)
+                  self.ddl_sensors + self.double_door_lock +
+                  self.unmonitored_single_magnetic_lock + 
+                  self.unmonitored_double_magnetic_lock)
         
         return {'readers': readers, 'inputs': inputs, 'outputs': outputs}
     
@@ -55,6 +60,8 @@ class DCDevice:
         self.buzzer += other_config.buzzer
         self.double_door_lock += other_config.double_door_lock
         self.ddl_sensors += other_config.ddl_sensors
+        self.unmonitored_single_magnetic_lock += other_config.unmonitored_single_magnetic_lock
+        self.unmonitored_double_magnetic_lock += other_config.unmonitored_double_magnetic_lock
 
 
 class AccessDoorType:
@@ -354,9 +361,9 @@ class KantechDCCalculatorGUI:
         list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
         # Treeview for DC lines
-        columns = ('DC', 'Smart Card', 'Fingerprint', 'Door Sensor', 'Mag Lock', 'Elec Lock', 
+        columns = ('DC', 'Card Reader', 'Bio-metric', 'Door Sensor', 'Mag Lock', 'Elec Lock', 
                   'REX', 'Push Button', 'Break Glass', 'Buzzer', 'DDL', 'DDL Sensors',
-                  'Readers', 'Inputs', 'Outputs')
+                  'Unmon Single', 'Unmon Double', 'Readers', 'Inputs', 'Outputs')
         
         self.dc_tree = ttk.Treeview(list_frame, columns=columns, show='headings', height=15)
         
@@ -399,7 +406,7 @@ class KantechDCCalculatorGUI:
         list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
         # Treeview for door types
-        columns = ('ID', 'Name', 'Smart Card', 'Fingerprint', 'Door Sensor', 'Readers', 'Inputs', 'Outputs')
+        columns = ('ID', 'Name', 'Card Reader', 'Bio-metric', 'Door Sensor', 'Readers', 'Inputs', 'Outputs')
         
         self.door_tree = ttk.Treeview(list_frame, columns=columns, show='headings', height=15)
         
@@ -634,7 +641,7 @@ class KantechDCCalculatorGUI:
                 totals = dc.calculate_totals()
                 overview += f"DC Line {dc.dc_number}: {totals['readers']} readers, "
                 overview += f"{totals['inputs']} inputs, {totals['outputs']} outputs\n"
-                overview += f"  Smart Card: {dc.smart_card}, Fingerprint: {dc.fingerprint}, "
+                overview += f"  Card Reader: {dc.smart_card}, Bio-metric: {dc.fingerprint}, "
                 overview += f"Door Sensor: {dc.door_sensor}\n"
         else:
             overview += "No DC lines configured\n"
@@ -674,6 +681,8 @@ class KantechDCCalculatorGUI:
                 dc.buzzer,
                 dc.double_door_lock,
                 dc.ddl_sensors,
+                dc.unmonitored_single_magnetic_lock,
+                dc.unmonitored_double_magnetic_lock,
                 totals['readers'],
                 totals['inputs'],
                 totals['outputs']
@@ -756,8 +765,8 @@ class KantechDCCalculatorGUI:
         manual_frame = ttk.LabelFrame(dialog, text="Manual Configuration", padding=10)
         
         devices = [
-            ("INDOOR Smart Card Reader", 'smart_card'),
-            ("Finger Print Reader", 'fingerprint'),
+            ("Card Reader", 'smart_card'),
+            ("Bio-metric Reader", 'fingerprint'),
             ("Door Sensor", 'door_sensor'),
             ("Magnetic Door Lock", 'magnetic_lock'),
             ("Electric Door Lock", 'electric_lock'),
@@ -766,7 +775,9 @@ class KantechDCCalculatorGUI:
             ("Break Glass", 'break_glass'),
             ("Buzzer", 'buzzer'),
             ("Double Door Lock", 'double_door_lock'),
-            ("DDL Sensors", 'ddl_sensors')
+            ("DDL Sensors", 'ddl_sensors'),
+            ("Unmonitored Single Magnetic Lock", 'unmonitored_single_magnetic_lock'),
+            ("Unmonitored Double Magnetic Lock", 'unmonitored_double_magnetic_lock')
         ]
         
         entries = {}
@@ -911,8 +922,8 @@ class KantechDCCalculatorGUI:
         config_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         devices = [
-            ("INDOOR Smart Card Reader", 'smart_card'),
-            ("Finger Print Reader", 'fingerprint'),
+            ("Card Reader", 'smart_card'),
+            ("Bio-metric Reader", 'fingerprint'),
             ("Door Sensor", 'door_sensor'),
             ("Magnetic Door Lock", 'magnetic_lock'),
             ("Electric Door Lock", 'electric_lock'),
@@ -921,7 +932,9 @@ class KantechDCCalculatorGUI:
             ("Break Glass", 'break_glass'),
             ("Buzzer", 'buzzer'),
             ("Double Door Lock", 'double_door_lock'),
-            ("DDL Sensors", 'ddl_sensors')
+            ("DDL Sensors", 'ddl_sensors'),
+            ("Unmonitored Single Magnetic Lock", 'unmonitored_single_magnetic_lock'),
+            ("Unmonitored Double Magnetic Lock", 'unmonitored_double_magnetic_lock')
         ]
         
         entries = {}
@@ -1005,8 +1018,8 @@ class KantechDCCalculatorGUI:
         config_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         devices = [
-            ("INDOOR Smart Card Reader", 'smart_card'),
-            ("Finger Print Reader", 'fingerprint'),
+            ("Card Reader", 'smart_card'),
+            ("Bio-metric Reader", 'fingerprint'),
             ("Door Sensor", 'door_sensor'),
             ("Magnetic Door Lock", 'magnetic_lock'),
             ("Electric Door Lock", 'electric_lock'),
@@ -1015,7 +1028,9 @@ class KantechDCCalculatorGUI:
             ("Break Glass", 'break_glass'),
             ("Buzzer", 'buzzer'),
             ("Double Door Lock", 'double_door_lock'),
-            ("DDL Sensors", 'ddl_sensors')
+            ("DDL Sensors", 'ddl_sensors'),
+            ("Unmonitored Single Magnetic Lock", 'unmonitored_single_magnetic_lock'),
+            ("Unmonitored Double Magnetic Lock", 'unmonitored_double_magnetic_lock')
         ]
         
         entries = {}
@@ -1108,8 +1123,8 @@ class KantechDCCalculatorGUI:
         config_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         devices = [
-            ("INDOOR Smart Card Reader", 'smart_card'),
-            ("Finger Print Reader", 'fingerprint'),
+            ("Card Reader", 'smart_card'),
+            ("Bio-metric Reader", 'fingerprint'),
             ("Door Sensor", 'door_sensor'),
             ("Magnetic Door Lock", 'magnetic_lock'),
             ("Electric Door Lock", 'electric_lock'),
@@ -1118,7 +1133,9 @@ class KantechDCCalculatorGUI:
             ("Break Glass", 'break_glass'),
             ("Buzzer", 'buzzer'),
             ("Double Door Lock", 'double_door_lock'),
-            ("DDL Sensors", 'ddl_sensors')
+            ("DDL Sensors", 'ddl_sensors'),
+            ("Unmonitored Single Magnetic Lock", 'unmonitored_single_magnetic_lock'),
+            ("Unmonitored Double Magnetic Lock", 'unmonitored_double_magnetic_lock')
         ]
         
         entries = {}
@@ -1214,7 +1231,9 @@ class KantechDCCalculatorGUI:
             break_glass=door_type.config.break_glass,
             buzzer=door_type.config.buzzer,
             double_door_lock=door_type.config.double_door_lock,
-            ddl_sensors=door_type.config.ddl_sensors
+            ddl_sensors=door_type.config.ddl_sensors,
+            unmonitored_single_magnetic_lock=door_type.config.unmonitored_single_magnetic_lock,
+            unmonitored_double_magnetic_lock=door_type.config.unmonitored_double_magnetic_lock
         )
         
         self.dc_lines.append(new_dc_line)
@@ -2186,10 +2205,10 @@ class KantechDCCalculatorGUI:
                 data = []
                 
                 # DC lines summary
-                data.append(["DC LINES SUMMARY", "", "", "", "", "", "", "", "", "", "", "", "", "", ""])
-                data.append(["DC", "Smart Card", "Fingerprint", "Door Sensor", "Mag Lock", "Elec Lock", 
+                data.append(["DC LINES SUMMARY", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""])
+                data.append(["DC", "Card Reader", "Bio-metric", "Door Sensor", "Mag Lock", "Elec Lock", 
                            "REX", "Push Button", "Break Glass", "Buzzer", "DDL", "DDL Sensors",
-                           "Readers", "Inputs", "Outputs"])
+                           "Unmon Single", "Unmon Double", "Readers", "Inputs", "Outputs"])
                 
                 for dc in self.dc_lines:
                     totals = dc.calculate_totals()
@@ -2206,6 +2225,8 @@ class KantechDCCalculatorGUI:
                         dc.buzzer,
                         dc.double_door_lock,
                         dc.ddl_sensors,
+                        dc.unmonitored_single_magnetic_lock,
+                        dc.unmonitored_double_magnetic_lock,
                         totals['readers'],
                         totals['inputs'],
                         totals['outputs']
@@ -2223,6 +2244,8 @@ class KantechDCCalculatorGUI:
                 total_buzzer = sum(dc.buzzer for dc in self.dc_lines)
                 total_ddl = sum(dc.double_door_lock for dc in self.dc_lines)
                 total_ddl_sensors = sum(dc.ddl_sensors for dc in self.dc_lines)
+                total_unmon_single = sum(dc.unmonitored_single_magnetic_lock for dc in self.dc_lines)
+                total_unmon_double = sum(dc.unmonitored_double_magnetic_lock for dc in self.dc_lines)
                 total_readers = sum(dc.calculate_totals()['readers'] for dc in self.dc_lines)
                 total_inputs = sum(dc.calculate_totals()['inputs'] for dc in self.dc_lines)
                 total_outputs = sum(dc.calculate_totals()['outputs'] for dc in self.dc_lines)
@@ -2231,12 +2254,14 @@ class KantechDCCalculatorGUI:
                            total_smart_card, total_fingerprint, total_door_sensor,
                            total_magnetic_lock, total_electric_lock, total_rex_button,
                            total_push_button, total_break_glass, total_buzzer,
-                           total_ddl, total_ddl_sensors, total_readers, total_inputs, total_outputs])
+                           total_ddl, total_ddl_sensors,
+                           total_unmon_single, total_unmon_double,
+                           total_readers, total_inputs, total_outputs])
                 
                 # Door types summary
-                data.append(["", "", "", "", "", "", "", "", "", "", "", "", "", "", ""])
+                data.append(["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""])
                 data.append(["DOOR TYPES SUMMARY", "", "", "", "", "", "", ""])
-                data.append(["ID", "Name", "Smart Card", "Fingerprint", "Door Sensor", "Readers", "Inputs", "Outputs"])
+                data.append(["ID", "Name", "Card Reader", "Bio-metric", "Door Sensor", "Readers", "Inputs", "Outputs"])
                 
                 for dt in self.access_door_types:
                     totals = dt.get_totals()

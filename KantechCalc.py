@@ -509,11 +509,28 @@ class KantechDCCalculatorGUI:
         self.license_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.license_tab, text="Licenses")
         
+        # Create notebook for license types
+        license_notebook = ttk.Notebook(self.license_tab)
+        license_notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Kantech license tab
+        self.kantech_license_tab = ttk.Frame(license_notebook)
+        license_notebook.add(self.kantech_license_tab, text="Kantech Licenses")
+        
+        # SWH license tab
+        self.swh_license_tab = ttk.Frame(license_notebook)
+        license_notebook.add(self.swh_license_tab, text="SWH Licenses")
+        
+        self.create_kantech_license_frame()
+        self.create_swh_license_frame()
+        
+    def create_kantech_license_frame(self):
+        """Create Kantech license frame"""
         # Title
-        ttk.Label(self.license_tab, text="License Calculation", style='Title.TLabel').pack(pady=20)
+        ttk.Label(self.kantech_license_tab, text="Kantech License Calculation", style='Title.TLabel').pack(pady=20)
         
         # Redundancy selection
-        redundancy_frame = ttk.LabelFrame(self.license_tab, text="System Configuration", padding=10)
+        redundancy_frame = ttk.LabelFrame(self.kantech_license_tab, text="System Configuration", padding=10)
         redundancy_frame.pack(fill=tk.X, padx=20, pady=10)
         
         ttk.Checkbutton(redundancy_frame, text="Use Redundancy Configuration", 
@@ -523,15 +540,31 @@ class KantechDCCalculatorGUI:
                  font=('Arial', 9, 'italic')).pack(anchor=tk.W, pady=5)
         
         # Calculate button
-        ttk.Button(self.license_tab, text="Calculate License Requirements", 
-                  command=self.calculate_license_gui).pack(pady=10)
+        ttk.Button(self.kantech_license_tab, text="Calculate Kantech License Requirements", 
+                  command=self.calculate_kantech_license).pack(pady=10)
         
         # Results frame
-        results_frame = ttk.LabelFrame(self.license_tab, text="License Results", padding=10)
+        results_frame = ttk.LabelFrame(self.kantech_license_tab, text="Kantech License Results", padding=10)
         results_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
         
-        self.license_results_text = scrolledtext.ScrolledText(results_frame, height=20)
-        self.license_results_text.pack(fill=tk.BOTH, expand=True)
+        self.kantech_license_results_text = scrolledtext.ScrolledText(results_frame, height=20)
+        self.kantech_license_results_text.pack(fill=tk.BOTH, expand=True)
+        
+    def create_swh_license_frame(self):
+        """Create SWH license frame"""
+        # Title
+        ttk.Label(self.swh_license_tab, text="SWH License Calculation", style='Title.TLabel').pack(pady=20)
+        
+        # Calculate button
+        ttk.Button(self.swh_license_tab, text="Calculate SWH License Requirements", 
+                  command=self.calculate_swh_license_gui).pack(pady=10)
+        
+        # Results frame
+        results_frame = ttk.LabelFrame(self.swh_license_tab, text="SWH License Results", padding=10)
+        results_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+        
+        self.swh_license_results_text = scrolledtext.ScrolledText(results_frame, height=20)
+        self.swh_license_results_text.pack(fill=tk.BOTH, expand=True)
         
     def create_export_tab(self):
         """Create export tab"""
@@ -595,6 +628,8 @@ class KantechDCCalculatorGUI:
                 totals = dc.calculate_totals()
                 overview += f"DC Line {dc.dc_number}: {totals['readers']} readers, "
                 overview += f"{totals['inputs']} inputs, {totals['outputs']} outputs\n"
+                overview += f"  Smart Card: {dc.smart_card}, Fingerprint: {dc.fingerprint}, "
+                overview += f"Door Sensor: {dc.door_sensor}\n"
         else:
             overview += "No DC lines configured\n"
         
@@ -646,7 +681,7 @@ class KantechDCCalculatorGUI:
         if dc_line_options:
             self.selected_dc_line_var.set(dc_line_options[0])
         
-        # Update system info
+        # Update system info and overview
         self.update_system_info()
         self.update_overview()
         
@@ -671,7 +706,7 @@ class KantechDCCalculatorGUI:
             )
             self.door_tree.insert('', tk.END, values=values)
         
-        # Update system info
+        # Update system info and overview
         self.update_system_info()
         self.update_overview()
         
@@ -1456,6 +1491,8 @@ class KantechDCCalculatorGUI:
         total_as0073 = 0
         total_as0074 = 0
         
+        controller_counts = {}
+        
         for dc_line in self.dc_lines:
             # Get DC line requirements
             dc_totals = dc_line.calculate_totals()
@@ -1493,6 +1530,10 @@ class KantechDCCalculatorGUI:
             total_expansion_cost += expansion['cost']
             total_as0073 += expansion.get('input_modules', 0)
             total_as0074 += expansion.get('output_modules', 0)
+            
+            # Count controller types
+            controller_name = controller.name
+            controller_counts[controller_name] = controller_counts.get(controller_name, 0) + 1
         
         # Display results
         result_text = "SWH/GSTAR SYSTEM CALCULATION - ALL DC LINES\n"
@@ -1516,16 +1557,25 @@ class KantechDCCalculatorGUI:
         result_text += "SUMMARY:\n"
         result_text += "=" * 60 + "\n"
         result_text += f"Total GSTAR Controllers: {total_controllers}\n"
-        result_text += f"Total Expansion Modules:\n"
+        
+        # Show detailed controller breakdown
+        result_text += f"Controller Breakdown:\n"
+        for controller_name, count in controller_counts.items():
+            result_text += f"  {controller_name}: {count} units\n"
+        
+        result_text += f"\nTotal Expansion Modules:\n"
         result_text += f"  AS0073-000 (8-input): {total_as0073} units  (${total_as0073 * 333})\n"
         result_text += f"  AS0074-000 (8-output): {total_as0074} units  (${total_as0074 * 395})\n"
-        result_text += f"Total controller cost: ${sum(r['controller'].price for r in all_results if r['controller'])}\n"
+        
+        total_controller_cost = sum(r['controller'].price for r in all_results if r['controller'])
+        result_text += f"Total controller cost: ${total_controller_cost}\n"
         result_text += f"Total expansion cost:  ${total_expansion_cost}\n"
         result_text += f"GRAND TOTAL HARDWARE:  ${grand_total_cost}\n\n"
         
         result_text += f"SYSTEM SUMMARY:\n"
         result_text += f"  Total DC Lines: {len(self.dc_lines)}\n"
         result_text += f"  Total Controllers Needed: {total_controllers}\n"
+        result_text += f"  Controller Types: {', '.join([f'{name}({count})' for name, count in controller_counts.items()])}\n"
         result_text += f"  Total Readers in System: {total_system_readers}\n"
         result_text += f"  Total System Cost: ${grand_total_cost}\n"
         
@@ -1535,6 +1585,7 @@ class KantechDCCalculatorGUI:
         self.gstar_results = {
             'all_results': all_results,
             'total_controllers': total_controllers,
+            'controller_counts': controller_counts,
             'total_cost': grand_total_cost,
             'total_readers': total_system_readers,
             'total_input_modules': total_as0073,
@@ -1675,13 +1726,13 @@ class KantechDCCalculatorGUI:
         
         self.swh_results_text.insert(1.0, result_text)
         
-    def calculate_license_gui(self):
-        """Calculate license requirements in GUI"""
+    def calculate_kantech_license(self):
+        """Calculate Kantech license requirements in GUI"""
         if not self.dc_lines:
             messagebox.showwarning("Warning", "No DC lines configured!")
             return
         
-        self.license_results_text.delete(1.0, tk.END)
+        self.kantech_license_results_text.delete(1.0, tk.END)
         
         # Calculate total controllers
         total_kt400 = 0
@@ -1699,7 +1750,7 @@ class KantechDCCalculatorGUI:
         
         total_controllers = total_kt400 + total_kt2 + total_kt1
         
-        result_text = "LICENSE CALCULATION\n"
+        result_text = "KANTECH LICENSE CALCULATION\n"
         result_text += "=" * 60 + "\n\n"
         
         result_text += "CONTROLLER SUMMARY:\n"
@@ -1761,7 +1812,71 @@ class KantechDCCalculatorGUI:
             result_text += f"ADDITIONAL LICENSES: None\n"
             result_text += f"TOTAL LICENSE COST: $0 (included in controller cost)\n"
         
-        self.license_results_text.insert(1.0, result_text)
+        self.kantech_license_results_text.insert(1.0, result_text)
+        
+    def calculate_swh_license_gui(self):
+        """Calculate SWH license requirements in GUI"""
+        if not self.dc_lines:
+            messagebox.showwarning("Warning", "No DC lines configured!")
+            return
+        
+        self.swh_license_results_text.delete(1.0, tk.END)
+        
+        # Calculate total readers
+        total_readers = sum(dc.calculate_totals()['readers'] for dc in self.dc_lines)
+        
+        result_text = "SWH LICENSE CALCULATION\n"
+        result_text += "=" * 60 + "\n\n"
+        
+        result_text += "SYSTEM SUMMARY:\n"
+        result_text += "-" * 40 + "\n"
+        result_text += f"Total DC Lines: {len(self.dc_lines)}\n"
+        result_text += f"Total Readers in System: {total_readers}\n\n"
+        
+        result_text += "AVAILABLE SWH LICENSES:\n"
+        result_text += "-" * 40 + "\n"
+        
+        suitable_licenses = []
+        for license_info in self.swh_calculator.swh_licenses:
+            max_readers = license_info['max_readers']
+            status = "✓ Suitable" if max_readers >= total_readers else "✗ Insufficient"
+            result_text += f"  {license_info['name']:<12} Max Readers: {max_readers:<6} {status}\n"
+            if max_readers >= total_readers:
+                suitable_licenses.append(license_info)
+        
+        result_text += "\n"
+        
+        if suitable_licenses:
+            suitable_licenses.sort(key=lambda x: x['max_readers'])
+            recommended_license = suitable_licenses[0]
+            
+            result_text += "✅ RECOMMENDED LICENSE:\n"
+            result_text += f"   License Name: {recommended_license['name']}\n"
+            result_text += f"   Maximum Readers Supported: {recommended_license['max_readers']}\n"
+            result_text += f"   Your System Readers: {total_readers}\n"
+            result_text += f"   Available Capacity: {recommended_license['max_readers'] - total_readers} readers\n"
+            result_text += f"   License Cost: ${recommended_license['cost']} (included in controller cost)\n\n"
+            
+            result_text += "LICENSE SUMMARY:\n"
+            result_text += "-" * 40 + "\n"
+            result_text += f"Total Readers: {total_readers}\n"
+            result_text += f"Selected License: {recommended_license['name']}\n"
+            result_text += f"Total License Cost: ${recommended_license['cost']}\n"
+            
+            # Store license result
+            self.swh_license_result = {
+                'total_readers': total_readers,
+                'selected_license': recommended_license['name'],
+                'max_readers': recommended_license['max_readers'],
+                'cost': recommended_license['cost']
+            }
+        else:
+            result_text += "❌ NO SUITABLE LICENSE FOUND!\n"
+            result_text += f"   Your system has {total_readers} readers\n"
+            result_text += f"   Maximum available license supports {self.swh_calculator.swh_licenses[-1]['max_readers']} readers\n"
+            result_text += f"   Consider splitting the system or contacting SWH for enterprise solutions\n"
+        
+        self.swh_license_results_text.insert(1.0, result_text)
         
     def export_kantech_results(self):
         """Export Kantech results to CSV"""
@@ -1968,6 +2083,12 @@ class KantechDCCalculatorGUI:
                 data.append(["", "", "", "", "", "", "", ""])
                 data.append(["SUMMARY", "", "", "", "", "", "", ""])
                 data.append(["Total Controllers", self.gstar_results['total_controllers'], "", "", "Total Cost", self.gstar_results['total_cost'], "", ""])
+                
+                # Add controller breakdown
+                if 'controller_counts' in self.gstar_results:
+                    for controller_name, count in self.gstar_results['controller_counts'].items():
+                        data.append(["", f"{controller_name}: {count} units", "", "", "", "", "", ""])
+                
                 data.append(["Total Readers", self.gstar_results['total_readers'], "", "", "Total Expansion Cost", self.gstar_results['total_expansion_cost'], "", ""])
                 data.append(["AS0073-000 Modules", self.gstar_results['total_input_modules'], "", "", "AS0074-000 Modules", self.gstar_results['total_output_modules'], "", ""])
                 

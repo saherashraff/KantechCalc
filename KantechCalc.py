@@ -770,32 +770,77 @@ class KantechDCCalculatorGUI:
             entry.grid(row=i, column=1, padx=5, pady=2)
             entries[key] = entry
         
-        # Door types selection frame
-        combine_frame = ttk.LabelFrame(dialog, text="Select Door Types", padding=10)
+        # Door types selection frame - SIMPLIFIED VERSION WITH QUANTITY FOR EACH DOOR TYPE
+        combine_frame = ttk.LabelFrame(dialog, text="Select Door Types and Quantities", padding=10)
         
-        self.selected_door_types = []
-        door_types_listbox = tk.Listbox(combine_frame, selectmode=tk.MULTIPLE, height=10)
-        door_types_listbox.pack(fill=tk.BOTH, expand=True, pady=5)
+        # Create a scrollable frame for door types
+        canvas = tk.Canvas(combine_frame)
+        scrollbar = ttk.Scrollbar(combine_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
         
-        # Add door types to listbox
-        for dt in self.access_door_types:
-            door_types_listbox.insert(tk.END, f"{dt.type_id}: {dt.name}")
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Dictionary to store quantity entries for each door type
+        quantity_entries = {}
+        
+        # Create quantity entries for each door type
+        if self.access_door_types:
+            for i, dt in enumerate(self.access_door_types):
+                frame = ttk.Frame(scrollable_frame)
+                frame.pack(fill=tk.X, pady=2, padx=5)
+                
+                ttk.Label(frame, text=f"{dt.name}:", width=30).pack(side=tk.LEFT)
+                entry = ttk.Entry(frame, width=10)
+                entry.insert(0, "0")
+                entry.pack(side=tk.RIGHT, padx=5)
+                quantity_entries[dt.type_id] = entry
+        else:
+            ttk.Label(scrollable_frame, text="No door types defined yet!", 
+                     font=('Arial', 10, 'italic')).pack(pady=20)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
         
         def add_selected_door_types():
-            selected_indices = door_types_listbox.curselection()
-            selected_types = [self.access_door_types[i] for i in selected_indices]
-            
-            # Create DC line by combining door types
+            # Create DC line by combining door types with quantities
             dc_number = len(self.dc_lines) + 1
             new_dc_line = DCDevice(dc_number=dc_number)
             
-            for dt in selected_types:
-                new_dc_line.add_configuration(dt.config)
+            total_quantity = 0
+            
+            # Get quantities for each door type
+            for dt in self.access_door_types:
+                try:
+                    quantity = int(quantity_entries[dt.type_id].get())
+                    if quantity < 0:
+                        messagebox.showerror("Error", f"Quantity for '{dt.name}' cannot be negative")
+                        return
+                    
+                    # Add the door type configuration multiple times based on quantity
+                    for _ in range(quantity):
+                        new_dc_line.add_configuration(dt.config)
+                    
+                    total_quantity += quantity
+                        
+                except ValueError:
+                    messagebox.showerror("Error", f"Invalid quantity for '{dt.name}'. Please enter a number.")
+                    return
+            
+            # Check if at least one door type was added
+            if total_quantity == 0:
+                messagebox.showwarning("Warning", "Please enter quantity > 0 for at least one door type")
+                return
             
             self.dc_lines.append(new_dc_line)
             self.update_dc_lines_list()
             dialog.destroy()
-            messagebox.showinfo("Success", f"DC Line {dc_number} created successfully!")
+            messagebox.showinfo("Success", f"DC Line {dc_number} created successfully with {total_quantity} door type(s)!")
         
         def show_selected_frame():
             if method_var.get() == "manual":

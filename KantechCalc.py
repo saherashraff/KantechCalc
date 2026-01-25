@@ -250,15 +250,15 @@ class KantechDCCalculatorGUI:
             }
         }
         
-        # Initialize tkinter variables BEFORE creating GUI
-        self.selected_dc_line_var = tk.StringVar()
-        self.selected_door_type_var = tk.StringVar()
-        self.redundancy_var = tk.BooleanVar(value=False)
-        
-        # Create main window
+        # Create main window FIRST
         self.root = tk.Tk()
         self.root.title("Access Control System Calculator")
         self.root.geometry("1200x800")
+        
+        # Now create tkinter variables AFTER root window is created
+        self.selected_dc_line_var = tk.StringVar()
+        self.selected_door_type_var = tk.StringVar()
+        self.redundancy_var = tk.BooleanVar(value=False)
         
         # Configure styles
         self.setup_styles()

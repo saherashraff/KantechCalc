@@ -213,6 +213,7 @@ class SWHControllerCalculator:
 
 class KantechDCCalculatorGUI:
     def __init__(self):
+        # Initialize all attributes first
         self.dc_lines: List[DCDevice] = []
         self.access_door_types: List[AccessDoorType] = []
         self.swh_calculator = SWHControllerCalculator()
@@ -266,6 +267,14 @@ class KantechDCCalculatorGUI:
             }
         }
         
+        # Initialize data storage for results
+        self.kantech_all_results = None
+        self.kantech_grand_total = 0
+        self.gstar_results = None
+        self.swh_license_result = None
+        self.kantech_single_result = []
+        self.swh_single_result = []
+        
         # Create main window
         self.root = tk.Tk()
         self.root.title("Access Control System Calculator")
@@ -276,27 +285,11 @@ class KantechDCCalculatorGUI:
         self.selected_door_type_var = tk.StringVar()
         self.redundancy_var = tk.BooleanVar(value=False)
         
-        # Initialize data storage for results
-        self.kantech_all_results = None
-        self.kantech_grand_total = 0
-        self.gstar_results = None
-        self.swh_license_result = None
-        self.kantech_single_result = []
-        self.swh_single_result = []
-        
         # Configure styles
         self.setup_styles()
         
-        # Create notebook for tabs
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
-        # Create all tabs
-        self.create_tabs()
-        
-        # Status bar
-        self.status_bar = tk.Label(self.root, text="Ready", bd=1, relief=tk.SUNKEN, anchor=tk.W)
-        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+        # Create the UI
+        self.create_ui()
         
     def setup_styles(self):
         """Configure ttk styles"""
@@ -305,41 +298,36 @@ class KantechDCCalculatorGUI:
         style.configure('Heading.TLabel', font=('Arial', 12, 'bold'))
         style.configure('Subheading.TLabel', font=('Arial', 10, 'bold'))
         
-    def create_tabs(self):
-        """Create all tabs for the application"""
-        # Create tab frames
-        self.main_tab = ttk.Frame(self.notebook)
-        self.dc_lines_tab = ttk.Frame(self.notebook)
-        self.door_types_tab = ttk.Frame(self.notebook)
-        self.calculation_tab = ttk.Frame(self.notebook)
-        self.license_tab = ttk.Frame(self.notebook)
-        self.export_tab = ttk.Frame(self.notebook)
+    def create_ui(self):
+        """Create the entire UI"""
+        # Create notebook for tabs
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        # Add tabs to notebook
-        self.notebook.add(self.main_tab, text="Main")
-        self.notebook.add(self.dc_lines_tab, text="DC Lines")
-        self.notebook.add(self.door_types_tab, text="Door Types")
-        self.notebook.add(self.calculation_tab, text="Calculations")
-        self.notebook.add(self.license_tab, text="Licenses")
-        self.notebook.add(self.export_tab, text="Export")
+        # Create all tabs
+        self.create_main_tab()
+        self.create_dc_lines_tab()
+        self.create_door_types_tab()
+        self.create_calculation_tab()
+        self.create_license_tab()
+        self.create_export_tab()
         
-        # Create content for each tab
-        self.create_main_tab_content()
-        self.create_dc_lines_tab_content()
-        self.create_door_types_tab_content()
-        self.create_calculation_tab_content()
-        self.create_license_tab_content()
-        self.create_export_tab_content()
+        # Status bar
+        self.status_bar = tk.Label(self.root, text="Ready", bd=1, relief=tk.SUNKEN, anchor=tk.W)
+        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
     
-    def create_main_tab_content(self):
-        """Create content for the main/home tab"""
+    def create_main_tab(self):
+        """Create the main/home tab"""
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Main")
+        
         # Title
-        title_label = ttk.Label(self.main_tab, text="ACCESS CONTROL SYSTEM CALCULATOR", 
+        title_label = ttk.Label(tab, text="ACCESS CONTROL SYSTEM CALCULATOR", 
                                style='Title.TLabel')
         title_label.pack(pady=20)
         
         # System info frame
-        info_frame = ttk.LabelFrame(self.main_tab, text="System Information", padding=10)
+        info_frame = ttk.LabelFrame(tab, text="System Information", padding=10)
         info_frame.pack(fill=tk.X, padx=20, pady=10)
         
         # Current system status
@@ -347,31 +335,36 @@ class KantechDCCalculatorGUI:
         self.system_info_text.pack(fill=tk.BOTH, expand=True)
         
         # Quick actions frame
-        actions_frame = ttk.LabelFrame(self.main_tab, text="Quick Actions", padding=10)
+        actions_frame = ttk.LabelFrame(tab, text="Quick Actions", padding=10)
         actions_frame.pack(fill=tk.X, padx=20, pady=10)
         
         # Quick action buttons
         ttk.Button(actions_frame, text="Add DC Line", 
-                  command=lambda: self.notebook.select(self.dc_lines_tab)).pack(side=tk.LEFT, padx=5)
+                  command=lambda: self.notebook.select(1)).pack(side=tk.LEFT, padx=5)
         ttk.Button(actions_frame, text="Manage Door Types", 
-                  command=lambda: self.notebook.select(self.door_types_tab)).pack(side=tk.LEFT, padx=5)
+                  command=lambda: self.notebook.select(2)).pack(side=tk.LEFT, padx=5)
         ttk.Button(actions_frame, text="Calculate Kantech", 
-                  command=lambda: self.notebook.select(self.calculation_tab)).pack(side=tk.LEFT, padx=5)
+                  command=lambda: self.notebook.select(3)).pack(side=tk.LEFT, padx=5)
         ttk.Button(actions_frame, text="Calculate SWH/GSTAR", 
-                  command=lambda: self.show_gstar_calculation()).pack(side=tk.LEFT, padx=5)
+                  command=self.show_gstar_calculation).pack(side=tk.LEFT, padx=5)
         
         # System overview frame
-        overview_frame = ttk.LabelFrame(self.main_tab, text="System Overview", padding=10)
+        overview_frame = ttk.LabelFrame(tab, text="System Overview", padding=10)
         overview_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
         
         # Overview text
         self.overview_text = scrolledtext.ScrolledText(overview_frame, height=15, state=tk.DISABLED)
         self.overview_text.pack(fill=tk.BOTH, expand=True)
+        
+        return tab
     
-    def create_dc_lines_tab_content(self):
-        """Create content for DC lines management tab"""
+    def create_dc_lines_tab(self):
+        """Create DC lines management tab"""
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="DC Lines")
+        
         # Top frame for controls
-        top_frame = ttk.Frame(self.dc_lines_tab)
+        top_frame = ttk.Frame(tab)
         top_frame.pack(fill=tk.X, padx=10, pady=10)
         
         ttk.Label(top_frame, text="DC Line Management", style='Title.TLabel').pack(side=tk.LEFT)
@@ -385,7 +378,7 @@ class KantechDCCalculatorGUI:
         ttk.Button(button_frame, text="Refresh", command=self.update_dc_lines_list).pack(side=tk.LEFT, padx=5)
         
         # DC lines list
-        list_frame = ttk.LabelFrame(self.dc_lines_tab, text="DC Lines List", padding=10)
+        list_frame = ttk.LabelFrame(tab, text="DC Lines List", padding=10)
         list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
         # Treeview for DC lines
@@ -409,11 +402,16 @@ class KantechDCCalculatorGUI:
         
         # Bind selection
         self.dc_tree.bind('<<TreeviewSelect>>', self.on_dc_line_selected)
+        
+        return tab
     
-    def create_door_types_tab_content(self):
-        """Create content for door types management tab"""
+    def create_door_types_tab(self):
+        """Create door types management tab"""
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Door Types")
+        
         # Top frame for controls
-        top_frame = ttk.Frame(self.door_types_tab)
+        top_frame = ttk.Frame(tab)
         top_frame.pack(fill=tk.X, padx=10, pady=10)
         
         ttk.Label(top_frame, text="Access Door Types Management", style='Title.TLabel').pack(side=tk.LEFT)
@@ -427,7 +425,7 @@ class KantechDCCalculatorGUI:
         ttk.Button(button_frame, text="Apply to DC Line", command=self.apply_door_type_to_dc).pack(side=tk.LEFT, padx=5)
         
         # Door types list
-        list_frame = ttk.LabelFrame(self.door_types_tab, text="Door Types List", padding=10)
+        list_frame = ttk.LabelFrame(tab, text="Door Types List", padding=10)
         list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
         # Treeview for door types
@@ -449,28 +447,38 @@ class KantechDCCalculatorGUI:
         
         # Bind selection
         self.door_tree.bind('<<TreeviewSelect>>', self.on_door_type_selected)
+        
+        return tab
     
-    def create_calculation_tab_content(self):
-        """Create content for calculation tab"""
+    def create_calculation_tab(self):
+        """Create calculation tab"""
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Calculations")
+        
         # Notebook for calculation types
-        calc_notebook = ttk.Notebook(self.calculation_tab)
+        calc_notebook = ttk.Notebook(tab)
         calc_notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # Kantech calculation tab
-        self.kantech_calc_tab = ttk.Frame(calc_notebook)
-        calc_notebook.add(self.kantech_calc_tab, text="Kantech System")
+        kantech_calc_tab = ttk.Frame(calc_notebook)
+        calc_notebook.add(kantech_calc_tab, text="Kantech System")
         
         # SWH/GSTAR calculation tab
-        self.swh_calc_tab = ttk.Frame(calc_notebook)
-        calc_notebook.add(self.swh_calc_tab, text="SWH/GSTAR System")
+        swh_calc_tab = ttk.Frame(calc_notebook)
+        calc_notebook.add(swh_calc_tab, text="SWH/GSTAR System")
         
-        self.create_kantech_calculation_frame()
-        self.create_swh_calculation_frame()
+        # Create content for Kantech tab
+        self.create_kantech_calculation_frame(kantech_calc_tab)
+        
+        # Create content for SWH tab
+        self.create_swh_calculation_frame(swh_calc_tab)
+        
+        return tab
     
-    def create_kantech_calculation_frame(self):
+    def create_kantech_calculation_frame(self, parent):
         """Create Kantech calculation frame"""
         # Top frame for controls
-        top_frame = ttk.Frame(self.kantech_calc_tab)
+        top_frame = ttk.Frame(parent)
         top_frame.pack(fill=tk.X, padx=10, pady=10)
         
         ttk.Label(top_frame, text="Kantech System Calculation", style='Title.TLabel').pack(side=tk.LEFT)
@@ -484,7 +492,7 @@ class KantechDCCalculatorGUI:
                   command=self.calculate_selected_kantech).pack(side=tk.LEFT, padx=5)
         
         # DC line selection
-        select_frame = ttk.LabelFrame(self.kantech_calc_tab, text="Select DC Line", padding=10)
+        select_frame = ttk.LabelFrame(parent, text="Select DC Line", padding=10)
         select_frame.pack(fill=tk.X, padx=10, pady=5)
         
         ttk.Label(select_frame, text="DC Line:").pack(side=tk.LEFT, padx=5)
@@ -494,16 +502,16 @@ class KantechDCCalculatorGUI:
         self.dc_line_combo.pack(side=tk.LEFT, padx=5)
         
         # Results frame
-        results_frame = ttk.LabelFrame(self.kantech_calc_tab, text="Calculation Results", padding=10)
+        results_frame = ttk.LabelFrame(parent, text="Calculation Results", padding=10)
         results_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
         self.kantech_results_text = scrolledtext.ScrolledText(results_frame, height=20)
         self.kantech_results_text.pack(fill=tk.BOTH, expand=True)
     
-    def create_swh_calculation_frame(self):
+    def create_swh_calculation_frame(self, parent):
         """Create SWH/GSTAR calculation frame"""
         # Top frame for controls
-        top_frame = ttk.Frame(self.swh_calc_tab)
+        top_frame = ttk.Frame(parent)
         top_frame.pack(fill=tk.X, padx=10, pady=10)
         
         ttk.Label(top_frame, text="SWH/GSTAR System Calculation", style='Title.TLabel').pack(side=tk.LEFT)
@@ -519,7 +527,7 @@ class KantechDCCalculatorGUI:
                   command=self.calculate_swh_license).pack(side=tk.LEFT, padx=5)
         
         # DC line selection
-        select_frame = ttk.LabelFrame(self.swh_calc_tab, text="Select DC Line", padding=10)
+        select_frame = ttk.LabelFrame(parent, text="Select DC Line", padding=10)
         select_frame.pack(fill=tk.X, padx=10, pady=5)
         
         ttk.Label(select_frame, text="DC Line:").pack(side=tk.LEFT, padx=5)
@@ -529,36 +537,42 @@ class KantechDCCalculatorGUI:
         self.swh_dc_line_combo.pack(side=tk.LEFT, padx=5)
         
         # Results frame
-        results_frame = ttk.LabelFrame(self.swh_calc_tab, text="Calculation Results", padding=10)
+        results_frame = ttk.LabelFrame(parent, text="Calculation Results", padding=10)
         results_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
         self.swh_results_text = scrolledtext.ScrolledText(results_frame, height=20)
         self.swh_results_text.pack(fill=tk.BOTH, expand=True)
     
-    def create_license_tab_content(self):
-        """Create content for license calculation tab"""
+    def create_license_tab(self):
+        """Create license calculation tab"""
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Licenses")
+        
         # Create notebook for license types
-        license_notebook = ttk.Notebook(self.license_tab)
+        license_notebook = ttk.Notebook(tab)
         license_notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # Kantech license tab
-        self.kantech_license_tab = ttk.Frame(license_notebook)
-        license_notebook.add(self.kantech_license_tab, text="Kantech Licenses")
+        kantech_license_tab = ttk.Frame(license_notebook)
+        license_notebook.add(kantech_license_tab, text="Kantech Licenses")
         
         # SWH license tab
-        self.swh_license_tab = ttk.Frame(license_notebook)
-        license_notebook.add(self.swh_license_tab, text="SWH Licenses")
+        swh_license_tab = ttk.Frame(license_notebook)
+        license_notebook.add(swh_license_tab, text="SWH Licenses")
         
-        self.create_kantech_license_frame()
-        self.create_swh_license_frame()
+        # Create content for license tabs
+        self.create_kantech_license_frame(kantech_license_tab)
+        self.create_swh_license_frame(swh_license_tab)
+        
+        return tab
     
-    def create_kantech_license_frame(self):
+    def create_kantech_license_frame(self, parent):
         """Create Kantech license frame"""
         # Title
-        ttk.Label(self.kantech_license_tab, text="Kantech License Calculation", style='Title.TLabel').pack(pady=20)
+        ttk.Label(parent, text="Kantech License Calculation", style='Title.TLabel').pack(pady=20)
         
         # Redundancy selection
-        redundancy_frame = ttk.LabelFrame(self.kantech_license_tab, text="System Configuration", padding=10)
+        redundancy_frame = ttk.LabelFrame(parent, text="System Configuration", padding=10)
         redundancy_frame.pack(fill=tk.X, padx=20, pady=10)
         
         ttk.Checkbutton(redundancy_frame, text="Use Redundancy Configuration", 
@@ -568,39 +582,42 @@ class KantechDCCalculatorGUI:
                  font=('Arial', 9, 'italic')).pack(anchor=tk.W, pady=5)
         
         # Calculate button
-        ttk.Button(self.kantech_license_tab, text="Calculate Kantech License Requirements", 
+        ttk.Button(parent, text="Calculate Kantech License Requirements", 
                   command=self.calculate_kantech_license).pack(pady=10)
         
         # Results frame
-        results_frame = ttk.LabelFrame(self.kantech_license_tab, text="Kantech License Results", padding=10)
+        results_frame = ttk.LabelFrame(parent, text="Kantech License Results", padding=10)
         results_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
         
         self.kantech_license_results_text = scrolledtext.ScrolledText(results_frame, height=20)
         self.kantech_license_results_text.pack(fill=tk.BOTH, expand=True)
     
-    def create_swh_license_frame(self):
+    def create_swh_license_frame(self, parent):
         """Create SWH license frame"""
         # Title
-        ttk.Label(self.swh_license_tab, text="SWH License Calculation", style='Title.TLabel').pack(pady=20)
+        ttk.Label(parent, text="SWH License Calculation", style='Title.TLabel').pack(pady=20)
         
         # Calculate button
-        ttk.Button(self.swh_license_tab, text="Calculate SWH License Requirements", 
+        ttk.Button(parent, text="Calculate SWH License Requirements", 
                   command=self.calculate_swh_license_gui).pack(pady=10)
         
         # Results frame
-        results_frame = ttk.LabelFrame(self.swh_license_tab, text="SWH License Results", padding=10)
+        results_frame = ttk.LabelFrame(parent, text="SWH License Results", padding=10)
         results_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
         
         self.swh_license_results_text = scrolledtext.ScrolledText(results_frame, height=20)
         self.swh_license_results_text.pack(fill=tk.BOTH, expand=True)
     
-    def create_export_tab_content(self):
-        """Create content for export tab"""
+    def create_export_tab(self):
+        """Create export tab"""
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Export")
+        
         # Title
-        ttk.Label(self.export_tab, text="Export Results", style='Title.TLabel').pack(pady=20)
+        ttk.Label(tab, text="Export Results", style='Title.TLabel').pack(pady=20)
         
         # Export options frame
-        options_frame = ttk.LabelFrame(self.export_tab, text="Export Options", padding=20)
+        options_frame = ttk.LabelFrame(tab, text="Export Options", padding=20)
         options_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
         
         ttk.Button(options_frame, text="Export Kantech Results to CSV", 
@@ -613,12 +630,11 @@ class KantechDCCalculatorGUI:
                   command=self.export_system_summary).pack(pady=10, fill=tk.X)
         
         # Export status
-        self.export_status = ttk.Label(self.export_tab, text="")
+        self.export_status = ttk.Label(tab, text="")
         self.export_status.pack(pady=10)
+        
+        return tab
     
-    # [The rest of your methods remain the same - from update_system_info() onwards]
-    # I'll continue with the rest of the methods...
-
     def update_system_info(self):
         """Update system information display"""
         # Enable for editing
@@ -772,7 +788,7 @@ class KantechDCCalculatorGUI:
         """Show dialog to add DC line"""
         dialog = tk.Toplevel(self.root)
         dialog.title("Add DC Line")
-        dialog.geometry("500x650")  # Increased height for new field
+        dialog.geometry("500x650")
         dialog.transient(self.root)
         dialog.grab_set()
         
@@ -792,7 +808,7 @@ class KantechDCCalculatorGUI:
         
         devices = [
             ("Card Reader", 'smart_card'),
-            ("Smart Card Reader", 'smart_card_reader'),  # NEW
+            ("Smart Card Reader", 'smart_card_reader'),
             ("Bio-metric Reader", 'fingerprint'),
             ("Door Sensor", 'door_sensor'),
             ("Magnetic Door Lock", 'magnetic_lock'),
@@ -815,7 +831,7 @@ class KantechDCCalculatorGUI:
             entry.grid(row=i, column=1, padx=5, pady=2)
             entries[key] = entry
         
-        # Door types selection frame - SIMPLIFIED VERSION WITH QUANTITY FOR EACH DOOR TYPE
+        # Door types selection frame
         combine_frame = ttk.LabelFrame(dialog, text="Select Door Types and Quantities", padding=10)
         
         # Create a scrollable frame for door types
@@ -935,7 +951,7 @@ class KantechDCCalculatorGUI:
         """Show dialog to add door type"""
         dialog = tk.Toplevel(self.root)
         dialog.title("Add Access Door Type")
-        dialog.geometry("400x550")  # Increased height
+        dialog.geometry("400x550")
         dialog.transient(self.root)
         dialog.grab_set()
         
@@ -950,7 +966,7 @@ class KantechDCCalculatorGUI:
         
         devices = [
             ("Card Reader", 'smart_card'),
-            ("Smart Card Reader", 'smart_card_reader'),  # NEW
+            ("Smart Card Reader", 'smart_card_reader'),
             ("Bio-metric Reader", 'fingerprint'),
             ("Door Sensor", 'door_sensor'),
             ("Magnetic Door Lock", 'magnetic_lock'),
@@ -1034,7 +1050,7 @@ class KantechDCCalculatorGUI:
         """Show dialog to edit DC line"""
         dialog = tk.Toplevel(self.root)
         dialog.title(f"Edit DC Line {dc_line.dc_number}")
-        dialog.geometry("400x550")  # Increased height
+        dialog.geometry("400x550")
         dialog.transient(self.root)
         dialog.grab_set()
         
@@ -1047,7 +1063,7 @@ class KantechDCCalculatorGUI:
         
         devices = [
             ("Card Reader", 'smart_card'),
-            ("Smart Card Reader", 'smart_card_reader'),  # NEW
+            ("Smart Card Reader", 'smart_card_reader'),
             ("Bio-metric Reader", 'fingerprint'),
             ("Door Sensor", 'door_sensor'),
             ("Magnetic Door Lock", 'magnetic_lock'),
@@ -1137,7 +1153,7 @@ class KantechDCCalculatorGUI:
         """Show dialog to edit door type"""
         dialog = tk.Toplevel(self.root)
         dialog.title(f"Edit Door Type: {door_type.name}")
-        dialog.geometry("400x550")  # Increased height
+        dialog.geometry("400x550")
         dialog.transient(self.root)
         dialog.grab_set()
         
@@ -1153,7 +1169,7 @@ class KantechDCCalculatorGUI:
         
         devices = [
             ("Card Reader", 'smart_card'),
-            ("Smart Card Reader", 'smart_card_reader'),  # NEW
+            ("Smart Card Reader", 'smart_card_reader'),
             ("Bio-metric Reader", 'fingerprint'),
             ("Door Sensor", 'door_sensor'),
             ("Magnetic Door Lock", 'magnetic_lock'),
@@ -1410,18 +1426,10 @@ class KantechDCCalculatorGUI:
             }
         
         return None
-    
-    # [I need to continue with the rest of the methods, but due to character limit,
-    # I'll include the rest of the critical methods and note where to continue]
-    
-    # The rest of your methods (calculate_expansion_for_dc, calculate_all_kantech, etc.)
-    # should follow here. Since there's a character limit, I'll show the structure
-    # and you can copy the rest from your previous working code.
-    
+        
     def calculate_expansion_for_dc(self, dc_inputs: int, dc_outputs: int, 
                                  controller_inputs: int, controller_outputs: int) -> Dict:
         """Calculate expansion modules needed for a SINGLE DC line"""
-        # [Copy this method from your previous working code]
         # Calculate shortages
         input_shortage = max(0, dc_inputs - controller_inputs)
         output_shortage = max(0, dc_outputs - controller_outputs)
@@ -1498,7 +1506,6 @@ class KantechDCCalculatorGUI:
         
     def calculate_all_kantech(self):
         """Calculate Kantech system for all DC lines"""
-        # [Copy this method from your previous working code]
         if not self.dc_lines:
             messagebox.showwarning("Warning", "No DC lines configured!")
             return
@@ -1611,75 +1618,898 @@ class KantechDCCalculatorGUI:
         # Store results for export
         self.kantech_all_results = all_results
         self.kantech_grand_total = grand_total_cost
-    
-    # [Continue with the rest of your methods...]
-    # Due to character limits, I can't include the entire code, but here's the structure:
-    
-    # You need to copy the following methods from your previous working code:
-    # 1. calculate_selected_kantech()
-    # 2. calculate_all_gstar()
-    # 3. calculate_selected_gstar()
-    # 4. calculate_swh_license()
-    # 5. calculate_kantech_license()
-    # 6. calculate_swh_license_gui()
-    # 7. export_kantech_results()
-    # 8. export_gstar_results()
-    # 9. export_system_summary()
-    # 10. show_gstar_calculation()
-    # 11. run()
-    
-    # For now, I'll add placeholders for the missing methods:
-    
+        
     def calculate_selected_kantech(self):
         """Calculate Kantech system for selected DC line"""
-        # [Copy from your previous working code]
-        pass
-    
+        selected = self.selected_dc_line_var.get()
+        if not selected or selected == "":
+            messagebox.showwarning("Warning", "Please select a DC line")
+            return
+        
+        # Extract DC line number
+        try:
+            dc_num = int(selected.split(" ")[2])
+        except:
+            messagebox.showerror("Error", "Invalid DC line selection")
+            return
+        
+        # Find DC line
+        dc_line = next((dc for dc in self.dc_lines if dc.dc_number == dc_num), None)
+        if not dc_line:
+            messagebox.showerror("Error", "DC line not found")
+            return
+        
+        self.kantech_results_text.delete(1.0, tk.END)
+        
+        # Get DC line requirements
+        dc_totals = dc_line.calculate_totals()
+        
+        result_text = f"KANTECH SYSTEM CALCULATION - DC LINE {dc_num}\n"
+        result_text += "=" * 60 + "\n\n"
+        result_text += f"Requirements:\n"
+        result_text += f"  Total Readers: {dc_totals['readers']}\n"
+        result_text += f"  - Card Readers: {dc_totals['smart_cards']}\n"
+        result_text += f"  - Smart Card Readers: {dc_totals['smart_card_readers']}\n"
+        result_text += f"  - Bio-metric Readers: {dc_totals['fingerprints']}\n"
+        result_text += f"  Inputs:  {dc_totals['inputs']}\n"
+        result_text += f"  Outputs: {dc_totals['outputs']}\n\n"
+        
+        # Select controllers
+        controller_info = self.select_controllers_for_dc(dc_totals)
+        
+        if not controller_info:
+            result_text += "❌ No controller combination found for this DC line!\n"
+            self.kantech_results_text.insert(1.0, result_text)
+            return
+        
+        # Show algorithm used
+        if dc_totals['smart_card_readers'] > 0:
+            result_text += "⚠️  SMART CARD READER OPTIMIZATION ACTIVE\n"
+            result_text += "   Smart card readers use dedicated capacity on controllers\n\n"
+        
+        result_text += "STEP 1: SELECT CONTROLLERS\n"
+        result_text += "-" * 40 + "\n"
+        result_text += f"Selected Controllers for DC Line {dc_line.dc_number}:\n"
+        result_text += f"  kt-400: {controller_info['kt-400']} units\n"
+        result_text += f"  kt-2:   {controller_info['kt-2']} units\n"
+        result_text += f"  kt-1:   {controller_info['kt-1']} units\n"
+        result_text += f"  Controller Cost: ${controller_info['cost']}\n\n"
+        
+        if controller_info.get('algorithm') == 'smart_reader':
+            result_text += f"SMART CARD READER ALLOCATION:\n"
+            result_text += f"  Normal reader capacity: {controller_info['readers_provided']}\n"
+            result_text += f"  Smart reader capacity: {controller_info['smart_card_readers_provided']}\n"
+            result_text += f"  Smart readers on smart slots: {controller_info['smart_used']}\n"
+            result_text += f"  Smart readers on normal slots: {controller_info['normal_used_for_smart']}\n"
+            result_text += f"  Normal readers: {controller_info['normal_used_for_normal']}\n"
+            result_text += f"  Extra normal capacity: {controller_info['extra_normal_readers']}\n"
+            result_text += f"  Extra smart capacity: {controller_info['extra_smart_readers']}\n\n"
+        else:
+            result_text += f"Controller Capabilities:\n"
+            result_text += f"  Readers provided: {controller_info['readers_provided']} ({controller_info['extra_readers']} extra)\n"
+        
+        result_text += f"I/O Capabilities:\n"
+        result_text += f"  Inputs provided:  {controller_info['inputs_provided']}\n"
+        result_text += f"  Outputs provided: {controller_info['outputs_provided']}\n\n"
+        
+        # Calculate expansion
+        expansion = self.calculate_expansion_for_dc(
+            dc_totals['inputs'],
+            dc_totals['outputs'],
+            controller_info['inputs_provided'],
+            controller_info['outputs_provided']
+        )
+        
+        result_text += expansion['result'] + "\n"
+        
+        total_cost = controller_info['cost'] + expansion['cost']
+        
+        result_text += "FINAL COST BREAKDOWN:\n"
+        result_text += "-" * 40 + "\n"
+        result_text += f"  Controllers: ${controller_info['cost']}\n"
+        result_text += f"  Expansion:   ${expansion['cost']}\n"
+        result_text += f"  TOTAL:       ${total_cost}\n"
+        
+        self.kantech_results_text.insert(1.0, result_text)
+        
+        # Store for export
+        if not hasattr(self, 'kantech_single_result'):
+            self.kantech_single_result = []
+        self.kantech_single_result.append({
+            'dc_number': dc_line.dc_number,
+            'requirements': dc_totals,
+            'controllers': controller_info,
+            'expansion': expansion,
+            'total_cost': total_cost
+        })
+        
     def calculate_all_gstar(self):
         """Calculate SWH/GSTAR system for all DC lines"""
-        # [Copy from your previous working code]
-        pass
-    
+        if not self.dc_lines:
+            messagebox.showwarning("Warning", "No DC lines configured!")
+            return
+        
+        self.swh_results_text.delete(1.0, tk.END)
+        
+        all_results = []
+        total_system_readers = 0
+        grand_total_cost = 0
+        total_controllers = 0
+        total_expansion_cost = 0
+        total_as0073 = 0
+        total_as0074 = 0
+        
+        controller_counts = {}
+        
+        for dc_line in self.dc_lines:
+            # Get DC line requirements
+            dc_totals = dc_line.calculate_totals()
+            
+            # Select controller
+            controller = self.swh_calculator.select_controller_for_readers(dc_totals['readers'])
+            
+            if not controller:
+                self.swh_results_text.insert(tk.END, f"❌ No suitable GSTAR controller found for DC Line {dc_line.dc_number}!\n\n")
+                continue
+            
+            # Calculate expansion
+            expansion = self.swh_calculator.calculate_expansion_for_swh(
+                dc_totals['inputs'],
+                dc_totals['outputs'],
+                controller.inputs,
+                controller.outputs
+            )
+            
+            total_cost = controller.price + expansion['cost']
+            
+            # Add to results
+            all_results.append({
+                'dc_number': dc_line.dc_number,
+                'requirements': dc_totals,
+                'controller': controller,
+                'expansion': expansion,
+                'total_cost': total_cost
+            })
+            
+            # Accumulate totals
+            total_system_readers += dc_totals['readers']
+            grand_total_cost += total_cost
+            total_controllers += 1
+            total_expansion_cost += expansion['cost']
+            total_as0073 += expansion.get('input_modules', 0)
+            total_as0074 += expansion.get('output_modules', 0)
+            
+            # Count controller types
+            controller_name = controller.name
+            controller_counts[controller_name] = controller_counts.get(controller_name, 0) + 1
+        
+        # Display results
+        result_text = "SWH/GSTAR SYSTEM CALCULATION - ALL DC LINES\n"
+        result_text += "=" * 60 + "\n\n"
+        
+        for result in all_results:
+            req = result['requirements']
+            controller = result['controller']
+            expansion = result['expansion']
+            
+            result_text += f"DC Line {result['dc_number']}:\n"
+            result_text += f"  Requirements: {req['readers']} readers, {req['inputs']} inputs, {req['outputs']} outputs\n"
+            result_text += f"  Selected Controller: {controller.name}\n"
+            result_text += f"  Controller Price: ${controller.price}\n"
+            result_text += f"  ACM Modules included: {controller.number_of_acm}\n"
+            result_text += expansion['result']
+            result_text += f"  Total Cost for this line: ${result['total_cost']}\n"
+            result_text += "-" * 40 + "\n\n"
+        
+        # Summary
+        result_text += "SUMMARY:\n"
+        result_text += "=" * 60 + "\n"
+        result_text += f"Total GSTAR Controllers: {total_controllers}\n"
+        
+        # Show detailed controller breakdown
+        result_text += f"Controller Breakdown:\n"
+        for controller_name, count in controller_counts.items():
+            result_text += f"  {controller_name}: {count} units\n"
+        
+        result_text += f"\nTotal Expansion Modules:\n"
+        result_text += f"  AS0073-000 (8-input): {total_as0073} units  (${total_as0073 * 333})\n"
+        result_text += f"  AS0074-000 (8-output): {total_as0074} units  (${total_as0074 * 395})\n"
+        
+        total_controller_cost = sum(r['controller'].price for r in all_results if r['controller'])
+        result_text += f"Total controller cost: ${total_controller_cost}\n"
+        result_text += f"Total expansion cost:  ${total_expansion_cost}\n"
+        result_text += f"GRAND TOTAL HARDWARE:  ${grand_total_cost}\n\n"
+        
+        result_text += f"SYSTEM SUMMARY:\n"
+        result_text += f"  Total DC Lines: {len(self.dc_lines)}\n"
+        result_text += f"  Total Controllers Needed: {total_controllers}\n"
+        result_text += f"  Controller Types: {', '.join([f'{name}({count})' for name, count in controller_counts.items()])}\n"
+        result_text += f"  Total Readers in System: {total_system_readers}\n"
+        result_text += f"  Total System Cost: ${grand_total_cost}\n"
+        
+        self.swh_results_text.insert(1.0, result_text)
+        
+        # Store results
+        self.gstar_results = {
+            'all_results': all_results,
+            'total_controllers': total_controllers,
+            'controller_counts': controller_counts,
+            'total_cost': grand_total_cost,
+            'total_readers': total_system_readers,
+            'total_input_modules': total_as0073,
+            'total_output_modules': total_as0074,
+            'total_expansion_cost': total_expansion_cost
+        }
+        
     def calculate_selected_gstar(self):
         """Calculate SWH/GSTAR system for selected DC line"""
-        # [Copy from your previous working code]
-        pass
-    
+        selected = self.selected_dc_line_var.get()
+        if not selected or selected == "":
+            messagebox.showwarning("Warning", "Please select a DC line")
+            return
+        
+        # Extract DC line number
+        try:
+            dc_num = int(selected.split(" ")[2])
+        except:
+            messagebox.showerror("Error", "Invalid DC line selection")
+            return
+        
+        # Find DC line
+        dc_line = next((dc for dc in self.dc_lines if dc.dc_number == dc_num), None)
+        if not dc_line:
+            messagebox.showerror("Error", "DC line not found")
+            return
+        
+        self.swh_results_text.delete(1.0, tk.END)
+        
+        # Get DC line requirements
+        dc_totals = dc_line.calculate_totals()
+        
+        result_text = f"SWH GSTAR - DC LINE {dc_num} CALCULATION\n"
+        result_text += "=" * 60 + "\n\n"
+        result_text += f"Requirements:\n"
+        result_text += f"  Readers: {dc_totals['readers']}\n"
+        result_text += f"  Inputs:  {dc_totals['inputs']}\n"
+        result_text += f"  Outputs: {dc_totals['outputs']}\n\n"
+        
+        # Select controller
+        controller = self.swh_calculator.select_controller_for_readers(dc_totals['readers'])
+        
+        if not controller:
+            result_text += f"❌ No suitable GSTAR controller found for {dc_totals['readers']} readers!\n"
+            self.swh_results_text.insert(1.0, result_text)
+            return
+        
+        result_text += "STEP 1: SELECT GSTAR CONTROLLER (Based on readers only)\n"
+        result_text += "-" * 40 + "\n"
+        result_text += f"Selected Controller for DC Line {dc_line.dc_number}:\n"
+        result_text += f"  {controller.name}\n"
+        result_text += f"  Readers provided: {controller.readers}\n"
+        result_text += f"  Controller Cost: ${controller.price}\n"
+        result_text += f"  ACM Modules included: {controller.number_of_acm}\n\n"
+        
+        result_text += f"Controller I/O Capabilities:\n"
+        result_text += f"  Inputs provided:  {controller.inputs}\n"
+        result_text += f"  Outputs provided: {controller.outputs}\n\n"
+        
+        # Calculate expansion
+        expansion = self.swh_calculator.calculate_expansion_for_swh(
+            dc_totals['inputs'],
+            dc_totals['outputs'],
+            controller.inputs,
+            controller.outputs
+        )
+        
+        result_text += expansion['result'] + "\n"
+        
+        total_cost = controller.price + expansion['cost']
+        
+        result_text += "FINAL COST BREAKDOWN:\n"
+        result_text += "-" * 40 + "\n"
+        result_text += f"  Controller: ${controller.price}\n"
+        result_text += f"  Expansion:  ${expansion['cost']}\n"
+        result_text += f"  ACM Modules: {controller.number_of_acm} included\n"
+        result_text += f"  TOTAL:       ${total_cost}\n"
+        
+        self.swh_results_text.insert(1.0, result_text)
+        
+        # Store for export
+        if not hasattr(self, 'swh_single_result'):
+            self.swh_single_result = []
+        self.swh_single_result.append({
+            'dc_number': dc_line.dc_number,
+            'requirements': dc_totals,
+            'controller': controller,
+            'expansion': expansion,
+            'total_cost': total_cost
+        })
+        
     def calculate_swh_license(self):
         """Calculate SWH license based on total readers"""
-        # [Copy from your previous working code]
-        pass
-    
+        if not hasattr(self, 'gstar_results'):
+            messagebox.showwarning("Warning", "Please calculate GSTAR controllers first!")
+            return
+        
+        total_readers = self.gstar_results['total_readers']
+        
+        result_text = "SWH LICENSE CALCULATION\n"
+        result_text += "=" * 60 + "\n\n"
+        result_text += f"Total Readers in System: {total_readers}\n\n"
+        
+        result_text += "Available Licenses:\n"
+        result_text += "-" * 40 + "\n"
+        
+        suitable_licenses = []
+        for license_info in self.swh_calculator.swh_licenses:
+            max_readers = license_info['max_readers']
+            status = "✓ Suitable" if max_readers >= total_readers else "✗ Insufficient"
+            result_text += f"  {license_info['name']:<12} Max Readers: {max_readers:<6} {status}\n"
+            if max_readers >= total_readers:
+                suitable_licenses.append(license_info)
+        
+        result_text += "\n"
+        
+        if suitable_licenses:
+            suitable_licenses.sort(key=lambda x: x['max_readers'])
+            recommended_license = suitable_licenses[0]
+            
+            result_text += "✅ RECOMMENDED LICENSE:\n"
+            result_text += f"   {recommended_license['name']}\n"
+            result_text += f"   Supports up to {recommended_license['max_readers']} readers\n"
+            result_text += f"   Cost: ${recommended_license['cost']} (included in controller cost)\n"
+            
+            # Store license result
+            self.swh_license_result = {
+                'total_readers': total_readers,
+                'selected_license': recommended_license['name'],
+                'max_readers': recommended_license['max_readers'],
+                'cost': recommended_license['cost']
+            }
+        else:
+            result_text += "❌ NO SUITABLE LICENSE FOUND!\n"
+            result_text += f"   Your system has {total_readers} readers\n"
+            result_text += f"   Maximum available license supports {self.swh_calculator.swh_licenses[-1]['max_readers']} readers\n"
+            result_text += f"   Consider splitting the system or contacting SWH for enterprise solutions\n"
+        
+        self.swh_results_text.insert(1.0, result_text)
+        
     def calculate_kantech_license(self):
         """Calculate Kantech license requirements in GUI"""
-        # [Copy from your previous working code]
-        pass
-    
+        if not self.dc_lines:
+            messagebox.showwarning("Warning", "No DC lines configured!")
+            return
+        
+        self.kantech_license_results_text.delete(1.0, tk.END)
+        
+        # Calculate total controllers
+        total_kt400 = 0
+        total_kt2 = 0
+        total_kt1 = 0
+        
+        for dc_line in self.dc_lines:
+            dc_totals = dc_line.calculate_totals()
+            controller_info = self.select_controllers_for_dc(dc_totals)
+            
+            if controller_info:
+                total_kt400 += controller_info['kt-400']
+                total_kt2 += controller_info['kt-2']
+                total_kt1 += controller_info['kt-1']
+        
+        total_controllers = total_kt400 + total_kt2 + total_kt1
+        
+        result_text = "KANTECH LICENSE CALCULATION\n"
+        result_text += "=" * 60 + "\n\n"
+        
+        result_text += "CONTROLLER SUMMARY:\n"
+        result_text += "-" * 40 + "\n"
+        result_text += f"Total Controllers Needed: {total_controllers}\n"
+        result_text += f"Controller Breakdown:\n"
+        result_text += f"  kt-400: {total_kt400} units\n"
+        result_text += f"  kt-2:   {total_kt2} units\n"
+        result_text += f"  kt-1:   {total_kt1} units\n\n"
+        
+        use_redundancy = self.redundancy_var.get()
+        
+        if use_redundancy:
+            result_text += "REDUNDANCY CONFIGURATION SELECTED\n"
+            result_text += "✅ Required License: Global License\n"
+            result_text += "   Reason: Redundancy requires Global License (replaces Special/Corporate)\n"
+            result_text += "   Description: Required for ANY redundancy configuration\n\n"
+            
+            result_text += "ADDITIONAL LICENSES FOR REDUNDANCY:\n"
+            result_text += f"   1. Gateway License\n"
+            result_text += f"      Cost: ${self.license_info['gateway']['cost']}\n"
+            result_text += f"      Description: {self.license_info['gateway']['description']}\n\n"
+            
+            result_text += f"   2. Redundancy License\n"
+            result_text += f"      Cost: ${self.license_info['redundancy']['cost']}\n"
+            result_text += f"      Description: {self.license_info['redundancy']['description']}\n\n"
+            
+            total_license_cost = self.license_info['gateway']['cost'] + self.license_info['redundancy']['cost']
+            
+            result_text += "LICENSE SUMMARY:\n"
+            result_text += "-" * 40 + "\n"
+            result_text += f"Total Controllers: {total_controllers}\n"
+            result_text += f"Configuration: Redundant\n\n"
+            result_text += f"PRIMARY LICENSE:\n"
+            result_text += f"  • Global License\n\n"
+            result_text += f"ADDITIONAL LICENSES:\n"
+            result_text += f"  • Gateway License: ${self.license_info['gateway']['cost']}\n"
+            result_text += f"  • Redundancy License: ${self.license_info['redundancy']['cost']}\n\n"
+            result_text += f"TOTAL LICENSE COST: ${total_license_cost}\n"
+            
+        else:
+            if total_controllers <= 32:
+                license_name = self.license_info['special']['name']
+                result_text += f"✅ Required License: {license_name}\n"
+                result_text += f"   Reason: {total_controllers} controllers ≤ 32\n"
+                result_text += f"   Description: {self.license_info['special']['description']}\n"
+            else:
+                license_name = self.license_info['corporate']['name']
+                result_text += f"✅ Required License: {license_name}\n"
+                result_text += f"   Reason: {total_controllers} controllers > 32\n"
+                result_text += f"   Description: {self.license_info['corporate']['description']}\n"
+            
+            result_text += "\nLICENSE SUMMARY:\n"
+            result_text += "-" * 40 + "\n"
+            result_text += f"Total Controllers: {total_controllers}\n"
+            result_text += f"Configuration: Non-Redundant\n\n"
+            result_text += f"PRIMARY LICENSE:\n"
+            result_text += f"  • {license_name}\n\n"
+            result_text += f"ADDITIONAL LICENSES: None\n"
+            result_text += f"TOTAL LICENSE COST: $0 (included in controller cost)\n"
+        
+        self.kantech_license_results_text.insert(1.0, result_text)
+        
     def calculate_swh_license_gui(self):
         """Calculate SWH license requirements in GUI"""
-        # [Copy from your previous working code]
-        pass
-    
+        if not self.dc_lines:
+            messagebox.showwarning("Warning", "No DC lines configured!")
+            return
+        
+        self.swh_license_results_text.delete(1.0, tk.END)
+        
+        # Calculate total readers
+        total_readers = sum(dc.calculate_totals()['readers'] for dc in self.dc_lines)
+        
+        result_text = "SWH LICENSE CALCULATION\n"
+        result_text += "=" * 60 + "\n\n"
+        
+        result_text += "SYSTEM SUMMARY:\n"
+        result_text += "-" * 40 + "\n"
+        result_text += f"Total DC Lines: {len(self.dc_lines)}\n"
+        result_text += f"Total Readers in System: {total_readers}\n\n"
+        
+        result_text += "AVAILABLE SWH LICENSES:\n"
+        result_text += "-" * 40 + "\n"
+        
+        suitable_licenses = []
+        for license_info in self.swh_calculator.swh_licenses:
+            max_readers = license_info['max_readers']
+            status = "✓ Suitable" if max_readers >= total_readers else "✗ Insufficient"
+            result_text += f"  {license_info['name']:<12} Max Readers: {max_readers:<6} {status}\n"
+            if max_readers >= total_readers:
+                suitable_licenses.append(license_info)
+        
+        result_text += "\n"
+        
+        if suitable_licenses:
+            suitable_licenses.sort(key=lambda x: x['max_readers'])
+            recommended_license = suitable_licenses[0]
+            
+            result_text += "✅ RECOMMENDED LICENSE:\n"
+            result_text += f"   License Name: {recommended_license['name']}\n"
+            result_text += f"   Maximum Readers Supported: {recommended_license['max_readers']}\n"
+            result_text += f"   Your System Readers: {total_readers}\n"
+            result_text += f"   Available Capacity: {recommended_license['max_readers'] - total_readers} readers\n"
+            result_text += f"   License Cost: ${recommended_license['cost']} (included in controller cost)\n\n"
+            
+            result_text += "LICENSE SUMMARY:\n"
+            result_text += "-" * 40 + "\n"
+            result_text += f"Total Readers: {total_readers}\n"
+            result_text += f"Selected License: {recommended_license['name']}\n"
+            result_text += f"Total License Cost: ${recommended_license['cost']}\n"
+            
+            # Store license result
+            self.swh_license_result = {
+                'total_readers': total_readers,
+                'selected_license': recommended_license['name'],
+                'max_readers': recommended_license['max_readers'],
+                'cost': recommended_license['cost']
+            }
+        else:
+            result_text += "❌ NO SUITABLE LICENSE FOUND!\n"
+            result_text += f"   Your system has {total_readers} readers\n"
+            result_text += f"   Maximum available license supports {self.swh_calculator.swh_licenses[-1]['max_readers']} readers\n"
+            result_text += f"   Consider splitting the system or contacting SWH for enterprise solutions\n"
+        
+        self.swh_license_results_text.insert(1.0, result_text)
+        
     def export_kantech_results(self):
         """Export Kantech results to CSV"""
-        # [Copy from your previous working code]
-        pass
-    
+        if not hasattr(self, 'kantech_all_results'):
+            messagebox.showwarning("Warning", "Please run Kantech calculations first!")
+            return
+        
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            initialfile="kantech_results.csv"
+        )
+        
+        if filename:
+            try:
+                data = []
+                
+                for result in self.kantech_all_results:
+                    dc_num = result['dc_number']
+                    req = result['requirements']
+                    controllers = result['controllers']
+                    expansion = result['expansion']
+                    total_cost = result['total_cost']
+                    
+                    # DC line requirements
+                    data.append({
+                        'DC_Line': dc_num,
+                        'Type': 'Requirements',
+                        'Total_Readers': req['readers'],
+                        'Card_Readers': req['smart_cards'],
+                        'Smart_Card_Readers': req['smart_card_readers'],
+                        'Bio_Readers': req['fingerprints'],
+                        'Inputs': req['inputs'],
+                        'Outputs': req['outputs'],
+                        'KT400': '',
+                        'KT2': '',
+                        'KT1': '',
+                        'Controller_Cost': '',
+                        'Expansion_Modules': '',
+                        'Expansion_Cost': '',
+                        'Total_Cost': ''
+                    })
+                    
+                    # Controllers
+                    if controllers.get('algorithm') == 'smart_reader':
+                        data.append({
+                            'DC_Line': dc_num,
+                            'Type': 'Controllers (Smart Mode)',
+                            'Total_Readers': controllers['readers_provided'] + controllers['smart_card_readers_provided'],
+                            'Card_Readers': '',
+                            'Smart_Card_Readers': '',
+                            'Bio_Readers': '',
+                            'Inputs': controllers['inputs_provided'],
+                            'Outputs': controllers['outputs_provided'],
+                            'KT400': controllers['kt-400'],
+                            'KT2': controllers['kt-2'],
+                            'KT1': controllers['kt-1'],
+                            'Controller_Cost': controllers['cost'],
+                            'Expansion_Modules': '',
+                            'Expansion_Cost': '',
+                            'Total_Cost': ''
+                        })
+                    else:
+                        data.append({
+                            'DC_Line': dc_num,
+                            'Type': 'Controllers',
+                            'Total_Readers': controllers['readers_provided'],
+                            'Card_Readers': '',
+                            'Smart_Card_Readers': '',
+                            'Bio_Readers': '',
+                            'Inputs': controllers['inputs_provided'],
+                            'Outputs': controllers['outputs_provided'],
+                            'KT400': controllers['kt-400'],
+                            'KT2': controllers['kt-2'],
+                            'KT1': controllers['kt-1'],
+                            'Controller_Cost': controllers['cost'],
+                            'Expansion_Modules': '',
+                            'Expansion_Cost': '',
+                            'Total_Cost': ''
+                        })
+                    
+                    # Expansion
+                    if expansion['modules']:
+                        modules_str = ', '.join(expansion['modules'])
+                        data.append({
+                            'DC_Line': dc_num,
+                            'Type': 'Expansion',
+                            'Total_Readers': '',
+                            'Card_Readers': '',
+                            'Smart_Card_Readers': '',
+                            'Bio_Readers': '',
+                            'Inputs': '',
+                            'Outputs': '',
+                            'KT400': '',
+                            'KT2': '',
+                            'KT1': '',
+                            'Controller_Cost': '',
+                            'Expansion_Modules': modules_str,
+                            'Expansion_Cost': expansion['cost'],
+                            'Total_Cost': ''
+                        })
+                    else:
+                        data.append({
+                            'DC_Line': dc_num,
+                            'Type': 'Expansion',
+                            'Total_Readers': '',
+                            'Card_Readers': '',
+                            'Smart_Card_Readers': '',
+                            'Bio_Readers': '',
+                            'Inputs': '',
+                            'Outputs': '',
+                            'KT400': '',
+                            'KT2': '',
+                            'KT1': '',
+                            'Controller_Cost': '',
+                            'Expansion_Modules': 'None',
+                            'Expansion_Cost': 0,
+                            'Total_Cost': ''
+                        })
+                    
+                    # Total for this DC line
+                    data.append({
+                        'DC_Line': dc_num,
+                        'Type': 'TOTAL',
+                        'Total_Readers': '',
+                        'Card_Readers': '',
+                        'Smart_Card_Readers': '',
+                        'Bio_Readers': '',
+                        'Inputs': '',
+                        'Outputs': '',
+                        'KT400': '',
+                        'KT2': '',
+                        'KT1': '',
+                        'Controller_Cost': '',
+                        'Expansion_Modules': '',
+                        'Expansion_Cost': '',
+                        'Total_Cost': total_cost
+                    })
+                    
+                    # Empty row
+                    data.append({
+                        'DC_Line': '',
+                        'Type': '',
+                        'Total_Readers': '',
+                        'Card_Readers': '',
+                        'Smart_Card_Readers': '',
+                        'Bio_Readers': '',
+                        'Inputs': '',
+                        'Outputs': '',
+                        'KT400': '',
+                        'KT2': '',
+                        'KT1': '',
+                        'Controller_Cost': '',
+                        'Expansion_Modules': '',
+                        'Expansion_Cost': '',
+                        'Total_Cost': ''
+                    })
+                
+                # Add grand total
+                total_kt400 = sum(r['controllers']['kt-400'] for r in self.kantech_all_results)
+                total_kt2 = sum(r['controllers']['kt-2'] for r in self.kantech_all_results)
+                total_kt1 = sum(r['controllers']['kt-1'] for r in self.kantech_all_results)
+                total_controller_cost = sum(r['controllers']['cost'] for r in self.kantech_all_results)
+                total_expansion_cost = sum(r['expansion']['cost'] for r in self.kantech_all_results)
+                
+                data.append({
+                    'DC_Line': 'GRAND TOTAL',
+                    'Type': 'Summary',
+                    'Total_Readers': '',
+                    'Card_Readers': '',
+                    'Smart_Card_Readers': '',
+                    'Bio_Readers': '',
+                    'Inputs': '',
+                    'Outputs': '',
+                    'KT400': total_kt400,
+                    'KT2': total_kt2,
+                    'KT1': total_kt1,
+                    'Controller_Cost': total_controller_cost,
+                    'Expansion_Modules': '',
+                    'Expansion_Cost': total_expansion_cost,
+                    'Total_Cost': self.kantech_grand_total
+                })
+                
+                df = pd.DataFrame(data)
+                df.to_csv(filename, index=False)
+                
+                self.export_status.config(text=f"✅ Results exported to {filename}")
+                messagebox.showinfo("Success", f"Results exported to {filename}")
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to export: {str(e)}")
+                
     def export_gstar_results(self):
         """Export SWH/GSTAR results to CSV"""
-        # [Copy from your previous working code]
-        pass
-    
+        if not hasattr(self, 'gstar_results'):
+            messagebox.showwarning("Warning", "Please run SWH/GSTAR calculations first!")
+            return
+        
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            initialfile="gstar_results.csv"
+        )
+        
+        if filename:
+            try:
+                data = []
+                
+                # Add GSTAR controller results
+                data.append(["GSTAR/SWH SYSTEM RESULTS", "", "", "", "", "", "", ""])
+                data.append(["DC Line", "Readers", "Inputs", "Outputs", "Selected Controller", "Price", "Expansion Modules", "Total Cost"])
+                
+                for result in self.gstar_results['all_results']:
+                    requirements = result['requirements']
+                    controller = result['controller']
+                    expansion = result['expansion']
+                    total_cost = result['total_cost']
+                    
+                    if controller:
+                        expansion_str = ", ".join(expansion['modules']) if expansion['modules'] else "None"
+                        data.append([
+                            result['dc_number'],
+                            requirements['readers'],
+                            requirements['inputs'],
+                            requirements['outputs'],
+                            controller.name,
+                            controller.price,
+                            expansion_str,
+                            total_cost
+                        ])
+                    else:
+                        data.append([
+                            result['dc_number'],
+                            requirements['readers'],
+                            requirements['inputs'],
+                            requirements['outputs'],
+                            "No suitable controller",
+                            "N/A",
+                            "N/A",
+                            "N/A"
+                        ])
+                
+                # Add summary
+                data.append(["", "", "", "", "", "", "", ""])
+                data.append(["SUMMARY", "", "", "", "", "", "", ""])
+                data.append(["Total Controllers", self.gstar_results['total_controllers'], "", "", "Total Cost", self.gstar_results['total_cost'], "", ""])
+                
+                # Add controller breakdown
+                if 'controller_counts' in self.gstar_results:
+                    for controller_name, count in self.gstar_results['controller_counts'].items():
+                        data.append(["", f"{controller_name}: {count} units", "", "", "", "", "", ""])
+                
+                data.append(["Total Readers", self.gstar_results['total_readers'], "", "", "Total Expansion Cost", self.gstar_results['total_expansion_cost'], "", ""])
+                data.append(["AS0073-000 Modules", self.gstar_results['total_input_modules'], "", "", "AS0074-000 Modules", self.gstar_results['total_output_modules'], "", ""])
+                
+                # Add license information if available
+                if hasattr(self, 'swh_license_result'):
+                    data.append(["", "", "", "", "", "", "", ""])
+                    data.append(["LICENSE INFORMATION", "", "", "", "", "", "", ""])
+                    data.append([
+                        "Total Readers",
+                        self.swh_license_result['total_readers'],
+                        "",
+                        "",
+                        "Selected License",
+                        self.swh_license_result['selected_license'],
+                        f"Max Readers: {self.swh_license_result['max_readers']}",
+                        ""
+                    ])
+                    data.append(["License Cost", self.swh_license_result['cost'], "", "", "", "", "", ""])
+                
+                df = pd.DataFrame(data)
+                df.to_csv(filename, index=False, header=False)
+                
+                self.export_status.config(text=f"✅ Results exported to {filename}")
+                messagebox.showinfo("Success", f"Results exported to {filename}")
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to export: {str(e)}")
+                
     def export_system_summary(self):
         """Export system summary to CSV"""
-        # [Copy from your previous working code]
-        pass
+        if not self.dc_lines:
+            messagebox.showwarning("Warning", "No DC lines configured!")
+            return
+        
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            initialfile="system_summary.csv"
+        )
+        
+        if filename:
+            try:
+                data = []
+                
+                # DC lines summary
+                data.append(["DC LINES SUMMARY", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""])
+                data.append(["DC", "Card Reader", "Smart Card Reader", "Bio-metric", "Door Sensor", "Mag Lock", "Elec Lock", 
+                           "REX", "Push Button", "Break Glass", "Buzzer", "DDL", "DDL Sensors",
+                           "Unmon Single", "Unmon Double", "Readers", "Inputs", "Outputs"])
+                
+                for dc in self.dc_lines:
+                    totals = dc.calculate_totals()
+                    data.append([
+                        dc.dc_number,
+                        dc.smart_card,
+                        dc.smart_card_reader,
+                        dc.fingerprint,
+                        dc.door_sensor,
+                        dc.magnetic_lock,
+                        dc.electric_lock,
+                        dc.rex_button,
+                        dc.push_button,
+                        dc.break_glass,
+                        dc.buzzer,
+                        dc.double_door_lock,
+                        dc.ddl_sensors,
+                        dc.unmonitored_single_magnetic_lock,
+                        dc.unmonitored_double_magnetic_lock,
+                        totals['readers'],
+                        totals['inputs'],
+                        totals['outputs']
+                    ])
+                
+                # Totals
+                total_smart_card = sum(dc.smart_card for dc in self.dc_lines)
+                total_smart_card_reader = sum(dc.smart_card_reader for dc in self.dc_lines)
+                total_fingerprint = sum(dc.fingerprint for dc in self.dc_lines)
+                total_door_sensor = sum(dc.door_sensor for dc in self.dc_lines)
+                total_magnetic_lock = sum(dc.magnetic_lock for dc in self.dc_lines)
+                total_electric_lock = sum(dc.electric_lock for dc in self.dc_lines)
+                total_rex_button = sum(dc.rex_button for dc in self.dc_lines)
+                total_push_button = sum(dc.push_button for dc in self.dc_lines)
+                total_break_glass = sum(dc.break_glass for dc in self.dc_lines)
+                total_buzzer = sum(dc.buzzer for dc in self.dc_lines)
+                total_ddl = sum(dc.double_door_lock for dc in self.dc_lines)
+                total_ddl_sensors = sum(dc.ddl_sensors for dc in self.dc_lines)
+                total_unmon_single = sum(dc.unmonitored_single_magnetic_lock for dc in self.dc_lines)
+                total_unmon_double = sum(dc.unmonitored_double_magnetic_lock for dc in self.dc_lines)
+                total_readers = sum(dc.calculate_totals()['readers'] for dc in self.dc_lines)
+                total_inputs = sum(dc.calculate_totals()['inputs'] for dc in self.dc_lines)
+                total_outputs = sum(dc.calculate_totals()['outputs'] for dc in self.dc_lines)
+                
+                data.append(["TOTAL", 
+                           total_smart_card, total_smart_card_reader, total_fingerprint, total_door_sensor,
+                           total_magnetic_lock, total_electric_lock, total_rex_button,
+                           total_push_button, total_break_glass, total_buzzer,
+                           total_ddl, total_ddl_sensors,
+                           total_unmon_single, total_unmon_double,
+                           total_readers, total_inputs, total_outputs])
+                
+                # Door types summary
+                data.append(["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""])
+                data.append(["DOOR TYPES SUMMARY", "", "", "", "", "", "", "", ""])
+                data.append(["ID", "Name", "Card Reader", "Smart Card Reader", "Bio-metric", "Door Sensor", "Readers", "Inputs", "Outputs"])
+                
+                for dt in self.access_door_types:
+                    totals = dt.get_totals()
+                    data.append([
+                        dt.type_id,
+                        dt.name,
+                        dt.config.smart_card,
+                        dt.config.smart_card_reader,
+                        dt.config.fingerprint,
+                        dt.config.door_sensor,
+                        totals['readers'],
+                        totals['inputs'],
+                        totals['outputs']
+                    ])
+                
+                df = pd.DataFrame(data)
+                df.to_csv(filename, index=False, header=False)
+                
+                self.export_status.config(text=f"✅ System summary exported to {filename}")
+                messagebox.showinfo("Success", f"System summary exported to {filename}")
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to export: {str(e)}")
     
     def show_gstar_calculation(self):
         """Switch to SWH calculation tab"""
-        self.notebook.select(self.calculation_tab)
-        calc_notebook = self.calculation_tab.winfo_children()[0]
-        calc_notebook.select(self.swh_calc_tab)
+        self.notebook.select(3)  # Calculations tab
+        calc_notebook = self.notebook.winfo_children()[3].winfo_children()[0]
+        calc_notebook.select(1)  # SWH/GSTAR tab
     
     def run(self):
         """Run the GUI application"""

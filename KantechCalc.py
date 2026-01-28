@@ -1,3 +1,4 @@
+
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, scrolledtext
 import pandas as pd
@@ -43,8 +44,7 @@ class DCDevice:
         #           Unmonitored Single Magnetic Lock + Unmonitored Double Magnetic Lock + Buzzer
         # NOTE: Double Door Lock counts as 1 output
         # FIX: Buzzer SHOULD be counted as an output device
-        outputs = (self.magnetic_lock + self.electric_lock + 
-                  self.ddl_sensors + self.double_door_lock +
+        outputs = (self.magnetic_lock + self.electric_lock + self.double_door_lock +
                   self.unmonitored_single_magnetic_lock + 
                   self.unmonitored_double_magnetic_lock +
                   self.buzzer)  # ADDED: Buzzer is an output

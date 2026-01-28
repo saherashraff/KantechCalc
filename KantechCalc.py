@@ -32,19 +32,22 @@ class DCDevice:
         # Readers = Card Reader + Bio-metric Reader + Smart Card Reader
         readers = self.smart_card + self.fingerprint + self.smart_card_reader
         
-        # Inputs = Door Sensor + REX Button + Push Button + Break Glass + Buzzer + Magnetic Lock + DDL Sensors + Double Door Lock
+        # Inputs = Door Sensor + REX Button + Push Button + Break Glass + Magnetic Lock + DDL Sensors + Double Door Lock
         # NOTE: Double Door Lock counts as 1 input
+        # FIX: Buzzer should NOT be counted as an input - it's an output device
         inputs = (self.door_sensor + self.rex_button + self.push_button + 
-                 self.break_glass + self.buzzer + self.magnetic_lock + 
+                 self.break_glass + self.magnetic_lock + 
                  self.ddl_sensors + self.double_door_lock)
         
         # Outputs = Magnetic Lock + Electric Lock + DDL Sensors + Double Door Lock + 
-        #           Unmonitored Single Magnetic Lock + Unmonitored Double Magnetic Lock
+        #           Unmonitored Single Magnetic Lock + Unmonitored Double Magnetic Lock + Buzzer
         # NOTE: Double Door Lock counts as 1 output
+        # FIX: Buzzer SHOULD be counted as an output device
         outputs = (self.magnetic_lock + self.electric_lock + 
                   self.ddl_sensors + self.double_door_lock +
                   self.unmonitored_single_magnetic_lock + 
-                  self.unmonitored_double_magnetic_lock)
+                  self.unmonitored_double_magnetic_lock +
+                  self.buzzer)  # ADDED: Buzzer is an output
         
         return {
             'readers': readers,
@@ -758,11 +761,6 @@ class KantechDCCalculatorGUI:
                 totals['outputs']
             )
             self.door_tree.insert('', tk.END, values=values)
-        
-        # Update combobox values
-        door_type_options = [f"Door Type {dt.type_id}" for dt in self.access_door_types]
-        if hasattr(self, 'door_type_combo'):
-            self.door_type_combo['values'] = door_type_options
         
         # Update system info and overview
         self.update_system_info()

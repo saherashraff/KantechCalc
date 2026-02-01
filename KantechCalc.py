@@ -1,4 +1,3 @@
-
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, scrolledtext
 import pandas as pd
@@ -40,7 +39,7 @@ class DCDevice:
                  self.break_glass + self.magnetic_lock + 
                  self.ddl_sensors + self.double_door_lock)
         
-        # Outputs = Magnetic Lock + Electric Lock + DDL Sensors + Double Door Lock + 
+        # Outputs = Magnetic Lock + Electric Lock + Double Door Lock + 
         #           Unmonitored Single Magnetic Lock + Unmonitored Double Magnetic Lock + Buzzer
         # NOTE: Double Door Lock counts as 1 output
         # FIX: Buzzer SHOULD be counted as an output device
@@ -1291,13 +1290,12 @@ class KantechDCCalculatorGUI:
         total_normal_readers = dc_requirements['smart_cards'] + dc_requirements['fingerprints']
         total_smart_readers = dc_requirements['smart_card_readers']
         
-        # NEW: Special algorithm for smart card readers
+        # NEW: Always select at least one controller (handled in sub-methods)
         if total_smart_readers > 0:
             return self.select_controllers_with_smart_readers(total_normal_readers, total_smart_readers)
         else:
-            # Original algorithm for no smart card readers
             return self.select_controllers_no_smart_readers(total_normal_readers)
-    
+        
     def select_controllers_no_smart_readers(self, total_normal_readers):
         """Original algorithm for systems without smart card readers"""
         best_solution = None
@@ -1311,6 +1309,10 @@ class KantechDCCalculatorGUI:
         for kt400 in range(max_kt400 + 1):
             for kt2 in range(max_kt2 + 1):
                 for kt1 in range(max_kt1 + 1):
+                    # Skip the case where all are 0 - WE MUST HAVE AT LEAST ONE CONTROLLER
+                    if kt400 == 0 and kt2 == 0 and kt1 == 0:
+                        continue
+                        
                     readers_provided = (kt400 * 4 + kt2 * 2 + kt1 * 1)
                     cost = (kt400 * 1400 + kt2 * 750 + kt1 * 450)
                     
@@ -1345,7 +1347,19 @@ class KantechDCCalculatorGUI:
                 'algorithm': 'standard'
             }
         
-        return None
+        # Fallback: If no solution found (shouldn't happen), use kt-1
+        return {
+            'kt-400': 0,
+            'kt-2': 0,
+            'kt-1': 1,
+            'readers_provided': 1,
+            'cost': 450,
+            'extra_readers': 1,
+            'smart_card_readers_provided': 0,
+            'algorithm': 'fallback',
+            'inputs_provided': 4,
+            'outputs_provided': 2
+        }
     
     def select_controllers_with_smart_readers(self, total_normal_readers, total_smart_readers):
         """NEW: Special algorithm for systems WITH smart card readers"""
@@ -1360,6 +1374,10 @@ class KantechDCCalculatorGUI:
         for kt400 in range(max_kt400 + 1):
             for kt2 in range(max_kt2 + 1):
                 for kt1 in range(max_kt1 + 1):
+                    # Skip the case where all are 0 - WE MUST HAVE AT LEAST ONE CONTROLLER
+                    if kt400 == 0 and kt2 == 0 and kt1 == 0:
+                        continue
+                    
                     # Calculate capacities
                     normal_capacity = (kt400 * 4 + kt2 * 2 + kt1 * 1)
                     smart_capacity = (kt400 * 4 + kt2 * 2 + kt1 * 1)  # Same capacity for smart readers
@@ -1367,13 +1385,10 @@ class KantechDCCalculatorGUI:
                     cost = (kt400 * 1400 + kt2 * 750 + kt1 * 450)
                     
                     # Check if this combination can handle both normal and smart readers
-                    # Smart readers can use EITHER normal capacity OR smart card reader capacity
-                    # So we need to check if total capacity is sufficient
                     total_capacity = normal_capacity + smart_capacity
                     total_required = total_normal_readers + total_smart_readers
                     
                     # Also check that we don't exceed smart reader specific capacity
-                    # (smart readers should preferably use smart reader capacity)
                     available_smart_slots = (kt400 * 4 + kt2 * 2 + kt1 * 1)
                     
                     # Combination is valid if:
@@ -1423,7 +1438,23 @@ class KantechDCCalculatorGUI:
                 'algorithm': 'smart_reader'
             }
         
-        return None
+        # Fallback: If no solution found, use kt-1
+        return {
+            'kt-400': 0,
+            'kt-2': 0,
+            'kt-1': 1,
+            'readers_provided': 1,
+            'smart_card_readers_provided': 1,
+            'cost': 450,
+            'extra_normal_readers': 1,
+            'extra_smart_readers': 1,
+            'smart_used': min(1, total_smart_readers),
+            'normal_used_for_smart': max(0, total_smart_readers - 1),
+            'normal_used_for_normal': total_normal_readers,
+            'algorithm': 'fallback',
+            'inputs_provided': 4,
+            'outputs_provided': 2
+        }
         
     def calculate_expansion_for_dc(self, dc_inputs: int, dc_outputs: int, 
                                  controller_inputs: int, controller_outputs: int) -> Dict:

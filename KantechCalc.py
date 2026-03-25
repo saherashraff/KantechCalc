@@ -39,26 +39,28 @@ class NVR:
         self.throughput, self.slots, self.price = throughput, slots, price
 
 # ------------------------------------------------------------
-# Core Logic
+# Logic Functions
 # ------------------------------------------------------------
 
 def get_cheapest_hdd_config(required_tb, max_slots, parity_lvl, hdd_list):
+    """Finds the cheapest HDD config, preferring fewer drives if costs are similar."""
     best_cost = float('inf')
     best_cfg = None
+    
     for cap, price in hdd_list:
-        data_drives = ceil(required_tb / cap) if cap > 0 else 1
+        data_drives = ceil(required_tb / cap)
         total_drives = data_drives + parity_lvl
-        # Constraints: JBOD (parity 0) needs >=1 drive, RAID needs >= parity+1
-        min_drives = 1 if parity_lvl == 0 else parity_lvl + 1
         
-        if min_drives <= total_drives <= max_slots:
+        if (parity_lvl + 1) <= total_drives <= max_slots:
             cost = total_drives * price
-            if cost < best_cost:
+            # Logic: If cheaper, take it. If same price, take the one with FEWER drives.
+            if cost < best_cost or (cost == best_cost and best_cfg and total_drives < best_cfg['qty']):
                 best_cost = cost
                 best_cfg = {'cap': cap, 'qty': total_drives, 'usable': data_drives * cap, 'cost': cost}
     return best_cost, best_cfg
 
 def assign_cameras_min_storage(nvr_units, camera_types):
+    """Evenly distributes TB load across NVR units."""
     nvrs = []
     for n in nvr_units:
         nvrs.append({'obj': n, 'rem_c': n.cameras, 'rem_t': int(n.throughput * 1000), 
@@ -66,21 +68,21 @@ def assign_cameras_min_storage(nvr_units, camera_types):
     
     sorted_types = sorted(camera_types, key=lambda x: x['st'], reverse=True)
     for c_type in sorted_types:
-        rem_to_place = c_type['qty']
-        while rem_to_place > 0:
+        rem = c_type['qty']
+        while rem > 0:
             best_idx = -1
-            min_storage = float('inf')
+            min_st = float('inf')
             for i, n in enumerate(nvrs):
                 if n['rem_c'] > 0 and n['rem_t'] >= int(c_type['tp'] * 1000):
-                    if n['cur_st'] < min_storage:
-                        min_storage = n['cur_st']
+                    if n['cur_st'] < min_st:
+                        min_st = n['cur_st']
                         best_idx = i
             if best_idx == -1: return None
             nvrs[best_idx]['rem_c'] -= 1
             nvrs[best_idx]['rem_t'] -= int(c_type['tp'] * 1000)
             nvrs[best_idx]['assigned'][c_type['id']] += 1
             nvrs[best_idx]['cur_st'] += c_type['st']
-            rem_to_place -= 1
+            rem -= 1
     return nvrs
 
 # ------------------------------------------------------------
@@ -90,154 +92,101 @@ def assign_cameras_min_storage(nvr_units, camera_types):
 class CCTVApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("CCTV Hardware Optimizer")
+        self.root.title("CCTV Optimizer v3.0")
         self.camera_list = []
         self.setup_ui()
 
     def setup_ui(self):
-        # Top Input Area
-        input_frame = ttk.LabelFrame(self.root, text=" Camera Entry (Storage in GB) ", padding=10)
+        # Input Frame
+        input_frame = ttk.LabelFrame(self.root, text=" Camera Settings (Storage in GB) ", padding=10)
         input_frame.pack(fill="x", padx=10, pady=5)
 
-        ttk.Label(input_frame, text="Qty:").grid(row=0, column=0)
-        self.ent_qty = ttk.Entry(input_frame, width=8)
-        self.ent_qty.grid(row=0, column=1, padx=5)
+        labels = ["Qty:", "Mbps:", "GB/Cam:"]
+        self.entries = []
+        for i, text in enumerate(labels):
+            ttk.Label(input_frame, text=text).grid(row=0, column=i*2)
+            ent = ttk.Entry(input_frame, width=8)
+            ent.grid(row=0, column=i*2+1, padx=5)
+            self.entries.append(ent)
 
-        ttk.Label(input_frame, text="Mbps:").grid(row=0, column=2)
-        self.ent_mbps = ttk.Entry(input_frame, width=8)
-        self.ent_mbps.grid(row=0, column=3, padx=5)
+        ttk.Button(input_frame, text="Add", command=self.add_camera).grid(row=0, column=6, padx=5)
+        ttk.Button(input_frame, text="Clear", command=self.clear_cameras).grid(row=0, column=7)
 
-        ttk.Label(input_frame, text="GB/Cam:").grid(row=0, column=4)
-        self.ent_gb = ttk.Entry(input_frame, width=8)
-        self.ent_gb.grid(row=0, column=5, padx=5)
-
-        ttk.Button(input_frame, text="Add Camera", command=self.add_camera).grid(row=0, column=6, padx=10)
-        ttk.Button(input_frame, text="Clear All", command=self.clear_cameras).grid(row=0, column=7)
-
-        # Camera Table
+        # Table
         self.tree = ttk.Treeview(self.root, columns=("ID", "Qty", "Mbps", "GB", "TotalTB"), show="headings", height=5)
-        self.tree.heading("ID", text="Type")
-        self.tree.heading("Qty", text="Qty")
-        self.tree.heading("Mbps", text="Mbps")
-        self.tree.heading("GB", text="GB/Cam")
-        self.tree.heading("TotalTB", text="Total TB")
+        for col in ["ID", "Qty", "Mbps", "GB", "TotalTB"]: self.tree.heading(col, text=col)
         self.tree.pack(fill="x", padx=10, pady=5)
 
-        # Tab System for Mode
+        # Tabs
         self.tabs = ttk.Notebook(self.root)
         self.tabs.pack(fill="both", expand=True, padx=10, pady=5)
+        self.tab_raid = ttk.Frame(self.tabs); self.tab_jbod = ttk.Frame(self.tabs); self.tab_holis = ttk.Frame(self.tabs)
+        self.tabs.add(self.tab_raid, text=" RAID "); self.tabs.add(self.tab_jbod, text=" JBOD "); self.tabs.add(self.tab_holis, text=" HOLIS ")
 
-        self.tab_raid = ttk.Frame(self.tabs)
-        self.tab_jbod = ttk.Frame(self.tabs)
-        self.tab_holis = ttk.Frame(self.tabs)
-
-        self.tabs.add(self.tab_raid, text=" RAID Mode ")
-        self.tabs.add(self.tab_jbod, text=" JBOD Mode ")
-        self.tabs.add(self.tab_holis, text=" Holis Mode ")
-
-        # RAID Tab Content
+        # RAID Options
         self.raid_var = tk.IntVar(value=5)
-        ttk.Label(self.tab_raid, text="Select RAID Level:").pack(pady=5)
-        ttk.Radiobutton(self.tab_raid, text="RAID 5 (1 Parity)", variable=self.raid_var, value=5).pack()
-        ttk.Radiobutton(self.tab_raid, text="RAID 6 (2 Parity)", variable=self.raid_var, value=6).pack()
+        ttk.Radiobutton(self.tab_raid, text="RAID 5", variable=self.raid_var, value=5).pack(pady=5)
+        ttk.Radiobutton(self.tab_raid, text="RAID 6", variable=self.raid_var, value=6).pack()
 
-        # Calculation Button
-        ttk.Button(self.root, text="RUN OPTIMIZER", command=self.calculate).pack(pady=10)
+        # Action
+        ttk.Button(self.root, text="GENERATE OPTIMAL BILL OF MATERIALS", command=self.calculate).pack(pady=10)
 
-        # Results area
-        self.txt_res = tk.Text(self.root, height=18, width=85, state="disabled", font=("Consolas", 10), bg="#f4f4f4")
+        # Text Results
+        self.txt_res = tk.Text(self.root, height=18, width=85, state="disabled", font=("Consolas", 10), bg="#2b2b2b", fg="#ffffff")
         self.txt_res.pack(padx=10, pady=10)
 
     def add_camera(self):
         try:
-            q = int(self.ent_qty.get())
-            m = float(self.ent_mbps.get())
-            gb = float(self.ent_gb.get())
-            tb_conv = (gb / 1024) # Convert GB input to TB for backend
-            
-            cam_id = len(self.camera_list) + 1
-            self.camera_list.append({'id': cam_id, 'qty': q, 'tp': m, 'st': tb_conv, 'gb_orig': gb})
-            self.tree.insert("", "end", values=(cam_id, q, m, gb, f"{q * tb_conv:.2f}"))
-            
-            for ent in [self.ent_qty, self.ent_mbps, self.ent_gb]: ent.delete(0, tk.END)
-        except ValueError:
-            messagebox.showerror("Error", "Check your inputs. Use numbers only.")
+            q, m, gb = int(self.entries[0].get()), float(self.entries[1].get()), float(self.entries[2].get())
+            tb = gb / 1024
+            cid = len(self.camera_list) + 1
+            self.camera_list.append({'id': cid, 'qty': q, 'tp': m, 'st': tb, 'gb': gb})
+            self.tree.insert("", "end", values=(cid, q, m, gb, f"{q*tb:.2f}"))
+            for e in self.entries: e.delete(0, tk.END)
+        except: messagebox.showerror("Error", "Check numeric inputs.")
 
     def clear_cameras(self):
-        self.camera_list = []
-        for item in self.tree.get_children(): self.tree.delete(item)
+        self.camera_list = []; [self.tree.delete(i) for i in self.tree.get_children()]
 
     def calculate(self):
-        if not self.camera_list:
-            messagebox.showwarning("Warning", "Please add camera types first.")
-            return
-
-        selected_tab = self.tabs.index(self.tabs.select())
-        
-        if selected_tab == 0: # RAID
-            hardware = [NVR(*row) for row in RAID_DATA]
-            parity = self.raid_var.get()
-            mode_name = f"RAID {parity}"
-        elif selected_tab == 1: # JBOD
-            hardware = [NVR(*row) for row in JBOD_DATA]
-            parity = 0
-            mode_name = "JBOD"
-        else: # Holis
-            hardware = [NVR(*row) for row in HOLIS_DATA]
-            parity = 0
-            mode_name = "Holis"
+        if not self.camera_list: return
+        idx = self.tabs.index(self.tabs.select())
+        if idx == 0: hw, parity, mode = [NVR(*r) for r in RAID_DATA], self.raid_var.get(), f"RAID {self.raid_var.get()}"
+        elif idx == 1: hw, parity, mode = [NVR(*r) for r in JBOD_DATA], 0, "JBOD"
+        else: hw, parity, mode = [NVR(*r) for r in HOLIS_DATA], 0, "HOLIS"
 
         total_c = sum(c['qty'] for c in self.camera_list)
-        best_cost = float('inf')
-        best_data = None
+        total_m = sum(c['qty'] * c['tp'] for c in self.camera_list)
+        best_cost, best_data = float('inf'), None
 
-        # Optimization Search
-        for n_type in hardware:
-            max_n = ceil(total_c / n_type.cameras) + 1
-            for q in range(1, max_n + 1):
-                units = [n_type] * q
-                detailed = assign_cameras_min_storage(units, self.camera_list)
+        for model in hw:
+            min_u = max(ceil(total_c / model.cameras), ceil(total_m / model.throughput))
+            for q in range(min_u, min_u + 3):
+                detailed = assign_cameras_min_storage([model]*q, self.camera_list)
                 if detailed:
-                    project_cost = 0
-                    valid = True
+                    p_cost = 0; valid = True
                     for entry in detailed:
                         h_cost, h_cfg = get_cheapest_hdd_config(entry['cur_st'], entry['obj'].slots, parity, HDD_LIST)
-                        if h_cfg:
-                            entry['h_cfg'] = h_cfg
-                            project_cost += entry['obj'].price + h_cost
-                        else:
-                            valid = False; break
-                    if valid and project_cost < best_cost:
-                        best_cost = project_cost
-                        best_data = detailed
+                        if h_cfg: entry['h_cfg'], p_cost = h_cfg, p_cost + entry['obj'].price + h_cost
+                        else: valid = False; break
+                    if valid and p_cost < best_cost: best_cost, best_data = p_cost, detailed
 
-        self.display_results(best_cost, best_data, mode_name)
+        self.display(best_cost, best_data, mode)
 
-    def display_results(self, cost, data, mode):
-        self.txt_res.config(state="normal")
-        self.txt_res.delete("1.0", tk.END)
-        if not data:
-            self.txt_res.insert(tk.END, f"SYSTEM ERROR: No valid hardware found for {mode} constraints.")
+    def display(self, cost, data, mode):
+        self.txt_res.config(state="normal"); self.txt_res.delete("1.0", tk.END)
+        if not data: self.txt_res.insert(tk.END, "No valid hardware configuration found.")
         else:
-            header = f"MODE: {mode} | TOTAL PROJECT COST: ${cost:,.2f}\n"
-            self.txt_res.insert(tk.END, header + "="*70 + "\n")
-            
-            for i, entry in enumerate(data):
-                n, h = entry['obj'], entry['h_cfg']
-                c_breakdown = ", ".join([f"T{tid}: {qty}" for tid, qty in entry['assigned'].items()])
-                
-                res = f"UNIT {i+1}: {n.name} ({n.part})\n"
-                res += f"  - Cameras: {c_breakdown}\n"
-                res += f"  - Load: {entry['cur_st']:.2f} TB | Bandwidth: {(n.throughput - entry['rem_t']/1000):.2f} Mbps\n"
-                res += f"  - Storage: {h['qty']} x {h['cap']} TB | Usable: {h['usable']:.2f} TB\n"
-                res += f"  - Unit Subtotal (Hardware + HDD): ${n.price + h['cost']:,.2f}\n"
-                res += "-"*50 + "\n"
-                self.txt_res.insert(tk.END, res)
+            self.txt_res.insert(tk.END, f"OPTIMAL {mode} SOLUTION | TOTAL COST: ${cost:,.2f}\n" + "="*70 + "\n")
+            for i, ent in enumerate(data):
+                n, h = ent['obj'], ent['h_cfg']
+                cam_str = ", ".join([f"T{k}:{v}" for k,v in ent['assigned'].items()])
+                self.txt_res.insert(tk.END, f"UNIT {i+1}: {n.name} ({n.part})\n")
+                self.txt_res.insert(tk.END, f"  - Cameras: {cam_str}\n")
+                self.txt_res.insert(tk.END, f"  - Load: {ent['cur_st']:.2f} TB | Bandwidth: {(n.throughput - ent['rem_t']/1000):.2f} Mbps\n")
+                self.txt_res.insert(tk.END, f"  - Drives: {h['qty']} x {h['cap']} TB | Usable: {h['usable']:.2f} TB\n")
+                self.txt_res.insert(tk.END, f"  - Unit Subtotal: ${n.price + h['cost']:,.2f}\n" + "-"*50 + "\n")
         self.txt_res.config(state="disabled")
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    # Set a reasonable window size
-    root.geometry("700x750")
-    app = CCTVApp(root)
-    root.mainloop()
+    root = tk.Tk(); root.geometry("700x780"); app = CCTVApp(root); root.mainloop()

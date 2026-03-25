@@ -6,7 +6,6 @@ from collections import defaultdict
 # ------------------------------------------------------------
 # 1. HARDWARE DATA
 # ------------------------------------------------------------
-# Format: [Name, Part Number, Max Cameras, Max Mbps, Drive Slots, Price]
 RAID_DATA = [
     ["1U NVR", "ADVER00N0NP16G", 32, 50, 4, 3750.00],
     ["2U 64 Ch", "ADVER12R0N2H", 64, 300, 6, 10416.70],
@@ -15,19 +14,6 @@ RAID_DATA = [
     ["2U 175 Ch", "ADVER00RN2K", 175, 1000, 12, 13854.20],
 ]
 
-JBOD_DATA = [
-    ["Micro NVR", "ADVEM00N0NP8AH", 8, 80, 1, 1500.00],
-    ["1U NVR", "ADVER00N0NP16G", 32, 100, 4, 3750.00],
-    ["Desktop NVR", "ADVED00N0N5H", 50, 200, 2, 2291.70],
-    ["2U 75 Ch", "ADVER00N0N2J", 75, 400, 4, 5312.50],
-]
-
-HOLIS_DATA = [
-    ["Holis 8 Ch", "HRN-08013P", 8, 80, 1, 520.85],
-    ["Holis 16 Ch", "HRN-16023P", 16, 160, 1, 770.85],
-]
-
-# HDD PRICE LIST (Capacity in TB, Price)
 HDD_LIST = [
     (1, 63.15), (2, 94.71), (3, 105.26), (4, 168.42), (6, 215.78),
     (8, 306.42), (10, 355.53), (12, 442.10), (14, 617.98), (18, 720.55),
@@ -35,38 +21,68 @@ HDD_LIST = [
 ]
 
 # ------------------------------------------------------------
-# 2. LOGIC FUNCTIONS
+# 2. OPTIMIZED LOGIC FUNCTIONS
 # ------------------------------------------------------------
 
 def find_cheapest_hdd_config(required_tb, slots_available, parity):
-    """Calculates the absolute lowest price for HDDs to hit the TB target."""
+    """Calculates the lowest price to hit TB. Returns (cost, config)."""
+    if required_tb <= 0: return 0, {"qty": 0, "cap": 0, "usable": 0, "cost": 0}
     best_cost = float('inf')
     best_cfg = None
-
     for cap, price in HDD_LIST:
-        # RAID 5/6 Math: Data Drives + Parity Drives
         data_drives = math.ceil(required_tb / cap)
         total_drives = data_drives + parity
-
-        # Check if it fits in NVR and meets RAID minimums
         if total_drives <= slots_available and data_drives >= 1:
             total_price = total_drives * price
             if total_price < best_cost:
                 best_cost = total_price
-                best_cfg = {
-                    "qty": total_drives,
-                    "cap": cap,
-                    "usable": data_drives * cap,
-                    "cost": total_price
-                }
-            # If price is tied, use fewer drives to save slots
-            elif total_price == best_cost and best_cfg:
-                if total_drives < best_cfg['qty']:
-                    best_cfg = {
-                        "qty": total_drives, "cap": cap, 
-                        "usable": data_drives * cap, "cost": total_price
-                    }
+                best_cfg = {"qty": total_drives, "cap": cap, "usable": data_drives * cap, "cost": total_price}
     return best_cost, best_cfg
+
+def distribute_weighted(nvr_count, model, camera_list, parity):
+    """
+    Tests multiple distribution ratios (from balanced to skewed) 
+    to find which one results in the cheapest drive BOM.
+    """
+    best_dist_cost = float('inf')
+    best_dist_layout = None
+
+    # We test different 'fill' percentages for the primary NVR
+    # to see if packing it to a certain TB threshold saves money.
+    total_t = sum(c['qty'] * c['tb_per_unit'] for c in camera_list)
+    total_c = sum(c['qty'] for c in camera_list)
+    total_m = sum(c['qty'] * c['tp'] for c in camera_list)
+
+    # Simplified heuristic: Try 50/50, 60/40, 70/30, 80/20, 90/10 splits
+    for ratio in [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
+        if nvr_count == 1: ratio = 1.0
+        
+        # Split TB by ratio
+        tb1 = total_t * ratio
+        tb2 = total_t - tb1
+        
+        # Check if cameras and mbps fit this split (estimated)
+        c1 = math.ceil(total_c * ratio)
+        c2 = total_c - c1
+        m1 = total_m * ratio
+        m2 = total_m - m1
+
+        if c1 <= model[2] and c2 <= model[2] and m1 <= model[3] and m2 <= model[3]:
+            cost1, cfg1 = find_cheapest_hdd_config(tb1, model[4], parity)
+            cost2, cfg2 = find_cheapest_hdd_config(tb2, model[4], parity) if nvr_count > 1 else (0, None)
+            
+            if cfg1 and (nvr_count == 1 or (nvr_count > 1 and cfg2)):
+                current_total = (model[5] * nvr_count) + cost1 + cost2
+                if current_total < best_dist_cost:
+                    best_dist_cost = current_total
+                    best_dist_layout = [
+                        {"cams": c1, "mbps": m1, "tb": tb1, "h_cfg": cfg1},
+                        {"cams": c2, "mbps": m2, "tb": tb2, "h_cfg": cfg2}
+                    ] if nvr_count > 1 else [{"cams": c1, "mbps": m1, "tb": tb1, "h_cfg": cfg1}]
+        
+        if nvr_count == 1: break
+            
+    return best_dist_layout, best_dist_cost
 
 # ------------------------------------------------------------
 # 3. GUI APPLICATION
@@ -75,13 +91,12 @@ def find_cheapest_hdd_config(required_tb, slots_available, parity):
 class CCTVApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("CCTV Absolute Cheapest BOM Optimizer")
+        self.root.title("CCTV Absolute Lowest Cost BOM")
         self.camera_list = []
         self.setup_ui()
 
     def setup_ui(self):
-        # Input Frame
-        input_frame = ttk.LabelFrame(self.root, text=" Camera Entry (GB per Camera) ", padding=10)
+        input_frame = ttk.LabelFrame(self.root, text=" Camera Entry ", padding=10)
         input_frame.pack(fill="x", padx=10, pady=5)
 
         ttk.Label(input_frame, text="Qty:").grid(row=0, column=0)
@@ -94,33 +109,24 @@ class CCTVApp:
         ttk.Button(input_frame, text="Add", command=self.add_camera).grid(row=0, column=6, padx=5)
         ttk.Button(input_frame, text="Reset", command=self.clear_all).grid(row=0, column=7)
 
-        # Table
-        self.tree = ttk.Treeview(self.root, columns=("ID", "Qty", "Mbps", "GB", "TotalTB"), show="headings", height=5)
-        for col in ["ID", "Qty", "Mbps", "GB", "TotalTB"]: self.tree.heading(col, text=col)
+        self.tree = ttk.Treeview(self.root, columns=("Q", "M", "GB", "TotalTB"), show="headings", height=5)
+        for col in ["Q", "M", "GB", "TotalTB"]: self.tree.heading(col, text=col)
         self.tree.pack(fill="x", padx=10, pady=5)
 
-        # Tabs
-        self.tabs = ttk.Notebook(self.root)
-        self.tabs.pack(fill="both", expand=True, padx=10, pady=5)
-        self.t_raid, self.t_jbod, self.t_holis = ttk.Frame(self.tabs), ttk.Frame(self.tabs), ttk.Frame(self.tabs)
-        self.tabs.add(self.t_raid, text=" RAID "); self.tabs.add(self.t_jbod, text=" JBOD "); self.tabs.add(self.t_holis, text=" HOLIS ")
+        self.raid_var = tk.IntVar(value=1)
+        ttk.Radiobutton(self.root, text="RAID 5 (1 Parity)", variable=self.raid_var, value=1).pack()
+        ttk.Radiobutton(self.root, text="RAID 6 (2 Parity)", variable=self.raid_var, value=2).pack()
 
-        self.raid_var = tk.IntVar(value=1) # Parity: RAID 5 = 1, RAID 6 = 2
-        ttk.Radiobutton(self.t_raid, text="RAID 5 (1 Parity)", variable=self.raid_var, value=1).pack(pady=5)
-        ttk.Radiobutton(self.t_raid, text="RAID 6 (2 Parity)", variable=self.raid_var, value=2).pack()
+        ttk.Button(self.root, text="CALCULATE LOWEST PROJECT COST", command=self.calculate).pack(pady=10)
 
-        ttk.Button(self.root, text="FIND ABSOLUTE CHEAPEST OPTION", command=self.calculate).pack(pady=10)
-
-        self.txt_res = tk.Text(self.root, height=20, width=95, state="disabled", font=("Consolas", 10), bg="#000000", fg="#00FF00")
+        self.txt_res = tk.Text(self.root, height=22, width=95, state="disabled", font=("Consolas", 10), bg="#000000", fg="#00FF00")
         self.txt_res.pack(padx=10, pady=10)
 
     def add_camera(self):
         try:
             q, m, gb = int(self.ent_qty.get()), float(self.ent_mbps.get()), float(self.ent_gb.get())
-            tb_val = (gb * q) / 1024
-            self.camera_list.append({'qty': q, 'tp': m, 'tb': tb_val})
-            self.tree.insert("", "end", values=(len(self.camera_list), q, m, gb, f"{tb_val:.2f}"))
-            for e in [self.ent_qty, self.ent_mbps, self.ent_gb]: e.delete(0, tk.END)
+            self.camera_list.append({'qty': q, 'tp': m, 'tb_per_unit': gb / 1024})
+            self.tree.insert("", "end", values=(q, m, gb, f"{(gb*q)/1024:.2f}"))
         except: pass
 
     def clear_all(self):
@@ -128,65 +134,37 @@ class CCTVApp:
 
     def calculate(self):
         if not self.camera_list: return
-        
-        # Determine Mode Data
-        idx = self.tabs.index(self.tabs.select())
-        if idx == 0: hw_list, parity, mode_name = RAID_DATA, self.raid_var.get(), f"RAID {self.raid_var.get()+4}"
-        elif idx == 1: hw_list, parity, mode_name = JBOD_DATA, 0, "JBOD"
-        else: hw_list, parity, mode_name = HOLIS_DATA, 0, "Holis"
+        parity = self.raid_var.get()
+        best_overall_cost = float('inf')
+        best_overall_solution = None
 
-        total_c = sum(c['qty'] for c in self.camera_list)
-        total_m = sum(c['qty'] * c['tp'] for c in self.camera_list)
-        total_t = sum(c['tb'] for c in self.camera_list)
+        for model in RAID_DATA:
+            total_c = sum(c['qty'] for c in self.camera_list)
+            total_m = sum(c['qty'] * c['tp'] for c in self.camera_list)
+            min_u = max(math.ceil(total_c / model[2]), math.ceil(total_m / model[3]))
 
-        best_project_cost = float('inf')
-        best_solution = None
+            for q in range(min_u, min_u + 2):
+                layout, run_cost = distribute_weighted(q, model, self.camera_list, parity)
+                if layout and run_cost < best_overall_cost:
+                    best_overall_cost = run_cost
+                    best_overall_solution = {"model": model, "units": layout, "total": run_cost}
 
-        # TEST EVERY SINGLE NVR MODEL
-        for model in hw_list:
-            name, part, max_c, max_m, slots, unit_price = model
-            
-            # 1. How many units of THIS model do we need?
-            num_nvrs = max(math.ceil(total_c / max_c), math.ceil(total_m / max_m))
-            
-            # Try from minimum units up to +2 (splitting sometimes saves HDD costs)
-            for q in range(num_nvrs, num_nvrs + 2):
-                tb_per_nvr = total_t / q
-                h_cost, h_cfg = find_cheapest_hdd_config(tb_per_nvr, slots, parity)
-
-                if h_cfg:
-                    total_run_cost = (unit_price * q) + (h_cost * q)
-                    if total_run_cost < best_project_cost:
-                        best_project_cost = total_run_cost
-                        best_solution = {
-                            "model": name, "part": part, "qty": q,
-                            "hdd": h_cfg, "mode": mode_name, "total": total_run_cost
-                        }
-
-        self.display(best_solution)
+        self.display(best_overall_solution)
 
     def display(self, res):
         self.txt_res.config(state="normal"); self.txt_res.delete("1.0", tk.END)
         if not res:
-            self.txt_res.insert(tk.END, "No valid solution found.")
+            self.txt_res.insert(tk.END, "No configuration found.")
         else:
-            self.txt_res.insert(tk.END, f"--- CHEAPEST {res['mode']} SOLUTION FOUND ---\n\n")
-            self.txt_res.insert(tk.END, f"HARDWARE:\n")
-            self.txt_res.insert(tk.END, f"  NVR Model:      {res['model']} ({res['part']})\n")
-            self.txt_res.insert(tk.END, f"  NVR Quantity:   {res['qty']} Unit(s)\n")
-            self.txt_res.insert(tk.END, f"  Unit Price:     ${(res['total']/res['qty'] - res['hdd']['cost']):,.2f}\n\n")
-            
-            self.txt_res.insert(tk.END, f"STORAGE PER UNIT:\n")
-            self.txt_res.insert(tk.END, f"  HDD Config:     {res['hdd']['qty']} x {res['hdd']['cap']} TB\n")
-            self.txt_res.insert(tk.END, f"  Usable / Unit:  {res['hdd']['usable']:.2f} TB\n")
-            self.txt_res.insert(tk.END, f"  Total HDDs:     {res['hdd']['qty'] * res['qty']} drives across project\n\n")
-            
-            self.txt_res.insert(tk.END, f"PROJECT TOTALS:\n")
-            self.txt_res.insert(tk.END, f"  Hardware Total: ${(res['total'] - (res['hdd']['cost'] * res['qty'])):,.2f}\n")
-            self.txt_res.insert(tk.END, f"  HDD Total:      ${(res['hdd']['cost'] * res['qty']):,.2f}\n")
-            self.txt_res.insert(tk.END, f"  GRAND TOTAL:    ${res['total']:,.2f}\n")
-            self.txt_res.insert(tk.END, "="*60 + "\n")
+            self.txt_res.insert(tk.END, f"CHEAPEST COST-DRIVEN DISTRIBUTION | TOTAL: ${res['total']:,.2f}\n" + "="*85 + "\n")
+            for i, unit in enumerate(res['units']):
+                if unit['cams'] == 0 and i > 0: continue
+                self.txt_res.insert(tk.END, f"UNIT {i+1}: {res['model'][0]} ({res['model'][1]})\n")
+                self.txt_res.insert(tk.END, f"  - Distribution: {unit['cams']} Cameras | {unit['mbps']:.2f} Mbps | {unit['tb']:.2f} TB Load\n")
+                h = unit['h_cfg']
+                self.txt_res.insert(tk.END, f"  - HDD BOM: {h['qty']} x {h['cap']} TB | Usable: {h['usable']:.2f} TB | Slots: {h['qty']}/{res['model'][4]}\n")
+                self.txt_res.insert(tk.END, f"  - Subtotal: ${res['model'][5] + h['cost']:,.2f}\n" + "-"*75 + "\n")
         self.txt_res.config(state="disabled")
 
 if __name__ == "__main__":
-    root = tk.Tk(); root.geometry("800x800"); app = CCTVApp(root); root.mainloop()
+    root = tk.Tk(); root.geometry("850x850"); app = CCTVApp(root); root.mainloop()

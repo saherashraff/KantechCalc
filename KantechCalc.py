@@ -1,10 +1,9 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import math
-from itertools import product
 
 # ------------------------------------------------------------
-# 1. HARDWARE DATA
+# 1. HARDWARE DATA (Corrected Slots & Models)
 # ------------------------------------------------------------
 RAID_DATA = [
     ["1U RAID", "ADVER00N0NP16G", 32, 50, 4, 3750.00],
@@ -34,26 +33,37 @@ DEFAULT_HDD_PRICES = {
     24: 1447.95, 26: 1700.00
 }
 
+# ------------------------------------------------------------
+# 2. OPTIMIZATION LOGIC
+# ------------------------------------------------------------
 def get_best_hdd(required_tb, slots, parity, price_dict):
-    if required_tb <= 0: return 0, {"qty": 0, "cap": 0, "cost": 0}
+    """Calculates cheapest HDD config while enforcing RAID rules."""
+    if required_tb <= 1e-6: return 0, {"qty": 0, "cap": 0, "cost": 0, "total_tb": 0}
     best_h_cost = float('inf')
     best_h_cfg = None
+    
     for cap, price in sorted(price_dict.items()):
         if price <= 0: continue
-        data_drives = math.ceil(required_tb / cap)
-        if parity > 0: data_drives = max(data_drives, 2)
+        # RAID Rule: Must have at least 2 data drives before parity
+        data_drives = max(math.ceil(required_tb / cap), 2 if parity > 0 else 1)
         total_drives = data_drives + parity
+        
         if total_drives <= slots:
             total_price = total_drives * price
             if total_price < best_h_cost:
                 best_h_cost = total_price
-                best_h_cfg = {"qty": total_drives, "cap": cap, "cost": total_price}
+                best_h_cfg = {
+                    "qty": total_drives, 
+                    "cap": cap, 
+                    "cost": total_price, 
+                    "total_tb": (data_drives * cap)
+                }
     return best_h_cost, best_h_cfg
 
 class CCTVApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("CCTV BRUTE-FORCE OPTIMIZER V10")
+        self.root.title("CCTV MASTER V13 - RATIO DIVIDE OPTIMIZER")
         self.hdd_prices = DEFAULT_HDD_PRICES.copy()
         self.setup_ui()
 
@@ -62,6 +72,7 @@ class CCTVApp:
         self.t1, self.t2, self.t3 = ttk.Frame(self.nb), ttk.Frame(self.nb), ttk.Frame(self.nb)
         self.nb.add(self.t1, text=" 1. Camera Input "); self.nb.add(self.t2, text=" 2. Permutation Report "); self.nb.add(self.t3, text=" 3. HDD List ")
 
+        # Tab 1: Inputs
         f = ttk.Frame(self.t1, padding=10); f.pack(fill="x")
         self.ents = {}
         for i, label in enumerate(["Name", "Qty", "Mbps", "GB"]):
@@ -70,25 +81,27 @@ class CCTVApp:
         
         btn_f = ttk.Frame(self.t1); btn_f.pack(fill="x", padx=10)
         ttk.Button(btn_f, text="Add Camera", command=self.save_camera).pack(side="left", padx=5)
-        ttk.Button(btn_f, text="Clear List", command=self.clear_all_cams).pack(side="left", padx=5)
+        ttk.Button(btn_f, text="Clear All", command=self.clear_all_cams).pack(side="left", padx=5)
 
-        self.tree = ttk.Treeview(self.t1, columns=("N","Q","M","G"), show="headings", height=10)
-        for c, h in zip(self.tree["columns"], ["Name","Qty","Mbps","GB"]): self.tree.heading(c, text=h)
+        self.tree = ttk.Treeview(self.t1, columns=("N","Q","M","G"), show="headings", height=12)
+        for c, h in zip(self.tree["columns"], ["Type","Qty","Mbps","GB/Cam"]): self.tree.heading(c, text=h)
         self.tree.pack(fill="both", expand=True, padx=10, pady=5)
 
+        # Tab 2: Results
         f_b = ttk.Frame(self.t2, padding=15); f_b.pack(fill="x")
         self.mode_var = tk.StringVar(value="RAID 5")
         ttk.Combobox(f_b, textvariable=self.mode_var, values=["RAID 5", "RAID 6", "JBOD", "Holis"], state="readonly").pack(side="left", padx=5)
-        ttk.Button(f_b, text="TEST ALL DIVISIONS", command=self.find_cheapest).pack(side="left", padx=5)
+        ttk.Button(f_b, text="EXECUTE BRUTE FORCE DIVIDE", command=self.find_cheapest).pack(side="left", padx=5)
         
-        self.res_txt = tk.Text(self.t2, bg="#0d0d0d", fg="#00FF41", font=("Consolas", 10))
+        self.res_txt = tk.Text(self.t2, bg="#0d0d0d", fg="#00FF41", font=("Consolas", 10), wrap="none")
         self.res_txt.pack(fill="both", expand=True, padx=10, pady=5)
 
+        # Tab 3: HDD Prices
         pf = ttk.Frame(self.t3, padding=20); pf.pack()
         self.p_ents = {}
         for i, cap in enumerate(sorted(self.hdd_prices.keys())):
             r, c = divmod(i, 2)
-            ttk.Label(pf, text=f"{cap}TB: $").grid(row=r, column=c*2)
+            ttk.Label(pf, text=f"{cap}TB: $").grid(row=r, column=c*2, sticky="e")
             e = ttk.Entry(pf, width=12); e.insert(0, f"{self.hdd_prices[cap]:.2f}"); e.grid(row=r, column=c*2+1, padx=10)
             self.p_ents[cap] = e
 
@@ -116,29 +129,30 @@ class CCTVApp:
         best_overall_cost = float('inf')
         best_overall_config = None
 
-        # Test hardware options
         for m in hw_list:
-            n_qty = max(math.ceil(total_cams / m[2]), math.ceil(total_mbps / m[3]))
+            # Minimum units needed based on throughput/count limits
+            n_qty_min = max(math.ceil(total_cams / m[2]), math.ceil(total_mbps / m[3]))
             
-            # If we only need 1 NVR, the logic is simple
-            if n_qty == 1:
+            # Scenario A: 1 NVR
+            if n_qty_min == 1:
                 h_cost, h_cfg = get_best_hdd(total_tb, m[4], parity, self.hdd_prices)
                 if h_cfg:
                     total_cost = m[5] + h_cost
                     if total_cost < best_overall_cost:
                         best_overall_cost = total_cost
-                        best_overall_config = {"m": m, "n_qty": 1, "units": [{"cams": cams, "h": h_cfg}]}
+                        best_overall_config = {"m": m, "n_qty": 1, "units": [{"mb": total_mbps, "tb_req": total_tb, "h": h_cfg, "cam_count": total_cams}]}
             
-            # If we need 2 NVRs, we test permutations (1:8, 2:7, 3:6, etc.)
-            elif n_qty == 2:
-                # We iterate through all possible ways to split the FIRST camera type
-                # For simplicity in brute force, we split the bulk camera load
-                for i in range(0, total_cams + 1):
-                    # Logic: Split total load by 'i' and 'total-i'
+            # Scenario B: 2 NVRs (BRUTE FORCE RATIO TEST)
+            elif n_qty_min <= 2:
+                for i in range(1, total_cams): # Testing every possible integer split
                     ratio = i / total_cams
-                    tb_1, mb_1 = total_tb * ratio, total_mbps * ratio
-                    tb_2, mb_2 = total_tb * (1-ratio), total_mbps * (1-ratio)
+                    mb_1, tb_1 = total_mbps * ratio, total_tb * ratio
+                    mb_2, tb_2 = total_mbps * (1 - ratio), total_tb * (1 - ratio)
                     
+                    # Ensure neither NVR exceeds its hardware specs
+                    if i > m[2] or (total_cams - i) > m[2]: continue
+                    if mb_1 > m[3] or mb_2 > m[3]: continue
+
                     cost1, h1 = get_best_hdd(tb_1, m[4], parity, self.hdd_prices)
                     cost2, h2 = get_best_hdd(tb_2, m[4], parity, self.hdd_prices)
                     
@@ -149,35 +163,44 @@ class CCTVApp:
                             best_overall_config = {
                                 "m": m, "n_qty": 2, 
                                 "units": [
-                                    {"tb": tb_1, "mb": mb_1, "h": h1, "split": i},
-                                    {"tb": tb_2, "mb": mb_2, "h": h2, "split": total_cams-i}
+                                    {"h": h1, "mb": mb_1, "tb_req": tb_1, "cam_count": i},
+                                    {"h": h2, "mb": mb_2, "tb_req": tb_2, "cam_count": total_cams - i}
                                 ]
                             }
-            # For 3+ NVRs, we fallback to balanced distribution to prevent PC crash from 1000s of permutations
-            else:
-                h_cost, h_cfg = get_best_hdd(total_tb / n_qty, m[4], parity, self.hdd_prices)
-                if h_cfg:
-                    total_cost = (m[5] + h_cost) * n_qty
-                    if total_cost < best_overall_cost:
-                        best_overall_cost = total_cost
-                        best_overall_config = {"m": m, "n_qty": n_qty, "h_balanced": h_cfg, "cams": cams}
-
-        self.res_txt.delete("1.0", tk.END)
-        if not best_overall_config: return
         
-        self.res_txt.insert(tk.END, f"--- PERMUTATION OPTIMIZED REPORT ---\n")
-        self.res_txt.insert(tk.END, f"GRAND TOTAL: ${best_overall_cost:,.2f}\n")
-        self.res_txt.insert(tk.END, f"HARDWARE:    {best_overall_config['m'][1]}\n\n")
+        self.res_txt.delete("1.0", tk.END)
+        if not best_overall_config: 
+            self.res_txt.insert(tk.END, "CRITICAL: No hardware matches this load.")
+            return
+        
+        # Report Rendering
+        self.res_txt.insert(tk.END, f"--- PERMUTATION AUDIT REPORT ({mode}) ---\n")
+        self.res_txt.insert(tk.END, f"GRAND TOTAL: ${best_overall_cost:,.2f} (Hardware + Optimized HDDs)\n")
+        self.res_txt.insert(tk.END, "="*65 + "\n\n")
 
-        if "units" in best_overall_config:
-            for idx, u in enumerate(best_overall_config['units']):
-                self.res_txt.insert(tk.END, f"UNIT #{idx+1}:\n")
-                self.res_txt.insert(tk.END, f"  Drives: {u['h']['qty']} x {u['h']['cap']}TB\n")
-                self.res_txt.insert(tk.END, f"  Load:   ~{u['split']} cameras total\n")
-                self.res_txt.insert(tk.END, "-"*30 + "\n")
-        else:
-            self.res_txt.insert(tk.END, f"DISTRIBUTION: {best_overall_config['n_qty']} Balanced Units\n")
-            self.res_txt.insert(tk.END, f"Drives: {best_overall_config['h_balanced']['qty']} x {best_overall_config['h_balanced']['cap']}TB per unit\n")
+        m = best_overall_config['m']
+        for idx, u in enumerate(best_overall_config['units']):
+            self.res_txt.insert(tk.END, f"NVR UNIT #{idx+1} | {m[1]} ({m[0]})\n")
+            self.res_txt.insert(tk.END, "-"*65 + "\n")
+            
+            # Camera Proportional Ratio
+            u_ratio = u['cam_count'] / total_cams
+            self.res_txt.insert(tk.END, f"CAMERA ASSIGNMENT (Ratio: {u_ratio:.2f}):\n")
+            for c in cams:
+                cam_take = round(c['qty'] * u_ratio)
+                if cam_take > 0:
+                    self.res_txt.insert(tk.END, f"  > {c['name']}: {cam_take} units\n")
+            
+            # Hardware Efficiency
+            util = (u['mb'] / m[3]) * 100
+            self.res_txt.insert(tk.END, f"\nTHROUGHPUT:\n  Used: {u['mb']:.1f} Mbps | Capacity: {m[3]} Mbps ({util:.1f}% load)\n")
+
+            # RAID Storage Calculation
+            self.res_txt.insert(tk.END, f"\nSTORAGE (Active RAID Partition):\n")
+            self.res_txt.insert(tk.END, f"  Config:   {u['h']['qty']} x {u['h']['cap']}TB Drives\n")
+            self.res_txt.insert(tk.END, f"  Required: {u['tb_req']:.2f} TB (Raw Data)\n")
+            self.res_txt.insert(tk.END, f"  Usable:   {u['h']['total_tb']:.2f} TB (After RAID Overhead)\n")
+            self.res_txt.insert(tk.END, "\n" + "="*65 + "\n\n")
 
 if __name__ == "__main__":
-    r = tk.Tk(); r.geometry("900x850"); app = CCTVApp(r); r.mainloop()
+    r = tk.Tk(); r.geometry("950x850"); app = CCTVApp(r); r.mainloop()

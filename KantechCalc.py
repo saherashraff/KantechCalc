@@ -4,7 +4,7 @@ import math
 from collections import defaultdict
 
 # ------------------------------------------------------------
-# 1. HARDWARE DATA (Corrected Mbps Limits)
+# 1. HARDWARE DATA (Updated with your new High-Capacity models)
 # ------------------------------------------------------------
 # Format: [Name, Part Number, Max Cam, Max Mbps, Slots, Price]
 RAID_DATA = [
@@ -29,8 +29,8 @@ JBOD_DATA = [
 ]
 
 HOLIS_DATA = [
-    ["Holis 8 Ch", "HRN-08013P", 8, 9999, 1, 520.85], # NO LIMITS
-    ["Holis 16 Ch", "HRN-16023P", 16, 9999, 1, 770.85], # NO LIMITS
+    ["Holis 8 Ch", "HRN-08013P", 8, 9999, 1, 520.85], 
+    ["Holis 16 Ch", "HRN-16023P", 16, 9999, 1, 770.85], 
 ]
 
 DEFAULT_HDD_PRICES = {
@@ -60,7 +60,7 @@ def get_best_hdd(required_tb, slots, parity, price_dict):
 class CCTVApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("CCTV Absolute Brute-Force Optimizer v4.1")
+        self.root.title("CCTV Absolute Brute-Force Optimizer v4.2")
         self.camera_types = [] 
         self.hdd_prices = DEFAULT_HDD_PRICES.copy()
         self.setup_ui()
@@ -80,7 +80,7 @@ class CCTVApp:
         self.entries = {}
         for i, f in enumerate(f_names):
             ttk.Label(input_frame, text=f"{f}:").grid(row=0, column=i*2)
-            ent = ttk.Entry(input_frame, width=10)
+            ent = ttk.Entry(input_frame, width=12)
             ent.grid(row=0, column=i*2+1, padx=5)
             self.entries[f] = ent
 
@@ -124,6 +124,7 @@ class CCTVApp:
             n, q, m, g = self.entries["Name"].get(), int(self.entries["Qty"].get()), float(self.entries["Mbps"].get()), float(self.entries["GB"].get())
             self.camera_types.append({'name': n or f"Type {len(self.camera_types)+1}", 'qty': q, 'tp': m, 'tb': g/1024, 'gb': g})
             self.tree.insert("", "end", values=(n, q, m, g))
+            for f in ["Name", "Qty", "Mbps", "GB"]: self.entries[f].delete(0, tk.END)
         except: pass
 
     def clear(self):
@@ -146,45 +147,50 @@ class CCTVApp:
 
         for nvr_qty in [1, 2]:
             for m1 in hw:
-                for m2 in hw if nvr_qty == 2 else [None]:
+                for m2 in (hw if nvr_qty == 2 else [None]):
                     if nvr_qty == 1:
                         t_m, t_t = sum(c['tp'] for c in flat_cams), sum(c['tb'] for c in flat_cams)
-                        if total_c <= m1[2] and t_m <= m1[3]: # RESTRICTION RESTORED
+                        if total_c <= m1[2] and t_m <= m1[3]:
                             h_c, h_f = get_best_hdd(t_t, m1[4], parity, self.hdd_prices)
                             if h_f and (m1[5] + h_c) < best_cost:
                                 best_cost = m1[5] + h_c
-                                best_sol = {"units": [{"m": m1, "cams": flat_cams, "h": h_f, "req": t_t}]}
+                                best_sol = {"units": [{"m": m1, "cams": flat_cams, "h": h_f, "req": t_t, "load": t_m}]}
                     else:
                         for i in range(1, total_c):
                             l1, l2 = flat_cams[:i], flat_cams[i:]
                             m1_t, t1 = sum(c['tp'] for c in l1), sum(c['tb'] for c in l1)
                             m2_t, t2 = sum(c['tp'] for c in l2), sum(c['tb'] for c in l2)
-                            if len(l1) <= m1[2] and m1_t <= m1[3] and len(l2) <= m2[2] and m2_t <= m2[3]: # RESTRICTION RESTORED
+                            if len(l1) <= m1[2] and m1_t <= m1[3] and len(l2) <= m2[2] and m2_t <= m2[3]:
                                 hc1, hf1 = get_best_hdd(t1, m1[4], parity, self.hdd_prices)
                                 hc2, hf2 = get_best_hdd(t2, m2[4], parity, self.hdd_prices)
                                 if hf1 and hf2:
                                     total_run = m1[5] + m2[5] + hc1 + hc2
                                     if total_run < best_cost:
                                         best_cost = total_run
-                                        best_sol = {"units": [{"m": m1, "cams": l1, "h": hf1, "req": t1}, {"m": m2, "cams": l2, "h": hf2, "req": t2}]}
+                                        best_sol = {"units": [
+                                            {"m": m1, "cams": l1, "h": hf1, "req": t1, "load": m1_t},
+                                            {"m": m2, "cams": l2, "h": hf2, "req": t2, "load": m2_t}
+                                        ]}
 
         self.display(best_sol, best_cost, mode)
 
     def display(self, sol, cost, mode):
         self.txt.config(state="normal"); self.txt.delete("1.0", tk.END)
-        if not sol: self.txt.insert(tk.END, "No valid configuration. (Check Mbps or Cam Count limits)")
+        if not sol:
+            self.txt.insert(tk.END, "No valid configuration found. (Check Mbps or Cam Count limits)")
         else:
-            self.txt.insert(tk.END, f"--- {mode} OPTIMIZED BILL OF MATERIALS | TOTAL: ${cost:,.2f} ---\n" + "="*80 + "\n")
+            self.txt.insert(tk.END, f"--- {mode} OPTIMIZED PROJECT BOM | TOTAL: ${cost:,.2f} ---\n" + "="*80 + "\n")
             for i, u in enumerate(sol['units']):
                 self.txt.insert(tk.END, f"UNIT {i+1}: {u['m'][0]} ({u['m'][1]})\n")
-                self.txt.insert(tk.END, f"  Storage Required: {u['req']:.2f} TB\n")
+                self.txt.insert(tk.END, f"  [ Load: {u['load']:.2f} Mbps / {u['m'][3]} Mbps Limit ]\n")
+                self.txt.insert(tk.END, f"  [ Storage Required: {u['req']:.2f} TB ]\n")
                 counts = defaultdict(int)
                 for c in u['cams']: counts[c['name']] += 1
-                self.txt.insert(tk.END, "  Cameras:\n")
+                self.txt.insert(tk.END, "  Camera Assignment:\n")
                 for n, q in counts.items(): self.txt.insert(tk.END, f"    > {q} x {n}\n")
-                self.txt.insert(tk.END, f"  Drive: {u['h']['qty']} x {u['h']['cap']} TB (Usable: {u['h']['usable']:.2f} TB)\n")
-                self.txt.insert(tk.END, f"  Subtotal: ${u['m'][5] + u['h']['cost']:,.2f}\n" + "-"*70 + "\n")
+                self.txt.insert(tk.END, f"  Drive Config: {u['h']['qty']} x {u['h']['cap']} TB (Usable: {u['h']['usable']:.2f} TB)\n")
+                self.txt.insert(tk.END, f"  Subtotal Unit {i+1}: ${u['m'][5] + u['h']['cost']:,.2f}\n" + "-"*70 + "\n")
         self.txt.config(state="disabled")
 
 if __name__ == "__main__":
-    root = tk.Tk(); root.geometry("900x850"); app = CCTVApp(root); root.mainloop()
+    root = tk.Tk(); root.geometry("950x900"); app = CCTVApp(root); root.mainloop()

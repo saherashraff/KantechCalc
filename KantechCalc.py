@@ -34,7 +34,7 @@ DEFAULT_HDD_PRICES = {
 }
 
 # ------------------------------------------------------------
-# 2. LOGIC FUNCTIONS
+# 2. CALCULATION ENGINE
 # ------------------------------------------------------------
 def get_best_hdd(required_tb, slots, parity, price_dict):
     if required_tb <= 1e-6: return 0, {"qty": 0, "cap": 0, "cost": 0, "total_tb": 0}
@@ -54,16 +54,16 @@ def get_best_hdd(required_tb, slots, parity, price_dict):
 class CCTVApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("CCTV MASTER V14 - DYNAMIC DATA EDITOR")
+        self.root.title("CCTV MASTER V15 - FINAL AUDIT TOOL")
         self.hdd_prices = DEFAULT_HDD_PRICES.copy()
         self.setup_ui()
 
     def setup_ui(self):
         self.nb = ttk.Notebook(self.root); self.nb.pack(fill="both", expand=True, padx=5, pady=5)
         self.t1, self.t2, self.t3 = ttk.Frame(self.nb), ttk.Frame(self.nb), ttk.Frame(self.nb)
-        self.nb.add(self.t1, text=" 1. Camera Management "); self.nb.add(self.t2, text=" 2. Permutation Report "); self.nb.add(self.t3, text=" 3. HDD Price Editor ")
+        self.nb.add(self.t1, text=" 1. Camera Management "); self.nb.add(self.t2, text=" 2. Final Audit Report "); self.nb.add(self.t3, text=" 3. HDD Settings ")
 
-        # --- TAB 1: CAMERA INPUT & EDITING ---
+        # TAB 1: Cameras
         f_in = ttk.Frame(self.t1, padding=10); f_in.pack(fill="x")
         self.ents = {}
         for i, label in enumerate(["Name", "Qty", "Mbps", "GB"]):
@@ -73,68 +73,60 @@ class CCTVApp:
         btn_f = ttk.Frame(self.t1, padding=5); btn_f.pack(fill="x", padx=10)
         ttk.Button(btn_f, text="Add/Update Row", command=self.save_camera).pack(side="left", padx=2)
         ttk.Button(btn_f, text="Delete Selected", command=self.delete_camera).pack(side="left", padx=2)
-        ttk.Button(btn_f, text="Clear All", command=self.clear_all_cams).pack(side="left", padx=2)
+        ttk.Button(btn_f, text="Clear List", command=self.clear_all_cams).pack(side="left", padx=2)
 
         self.tree = ttk.Treeview(self.t1, columns=("N","Q","M","G"), show="headings", height=15)
         for c, h in zip(self.tree["columns"], ["Type Name","Qty","Mbps","GB/Cam"]): self.tree.heading(c, text=h)
         self.tree.pack(fill="both", expand=True, padx=10, pady=5)
         self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
 
-        # --- TAB 2: OPTIMIZED REPORT ---
+        # TAB 2: Report
         f_b = ttk.Frame(self.t2, padding=15); f_b.pack(fill="x")
         self.mode_var = tk.StringVar(value="RAID 5")
         ttk.Combobox(f_b, textvariable=self.mode_var, values=["RAID 5", "RAID 6", "JBOD", "Holis"], state="readonly").pack(side="left", padx=5)
-        ttk.Button(f_b, text="CALCULATE BEST RATIO", command=self.find_cheapest).pack(side="left", padx=5)
+        ttk.Button(f_b, text="GENERATE AUDIT", command=self.find_cheapest).pack(side="left", padx=5)
         
-        self.res_txt = tk.Text(self.t2, bg="#0d0d0d", fg="#00FF41", font=("Consolas", 10), wrap="none")
+        self.res_txt = tk.Text(self.t2, bg="#ffffff", fg="#000000", font=("Consolas", 10), wrap="none")
         self.res_txt.pack(fill="both", expand=True, padx=10, pady=5)
 
-        # --- TAB 3: HDD PRICE EDITOR ---
+        # TAB 3: HDDs
         pf = ttk.Frame(self.t3, padding=20); pf.pack(fill="both", expand=True)
-        ttk.Label(pf, text="Update HDD prices below and click Save.", font=("Arial", 10, "bold")).grid(row=0, column=0, columnspan=4, pady=10)
         self.p_ents = {}
         for i, cap in enumerate(sorted(self.hdd_prices.keys())):
             r, c = divmod(i, 2)
-            ttk.Label(pf, text=f"{cap}TB Drive $:").grid(row=r+1, column=c*2, sticky="e", pady=5)
-            e = ttk.Entry(pf, width=15); e.insert(0, f"{self.hdd_prices[cap]:.2f}"); e.grid(row=r+1, column=c*2+1, padx=10, pady=5)
+            ttk.Label(pf, text=f"{cap}TB Drive $:").grid(row=r, column=c*2, sticky="e", pady=5)
+            e = ttk.Entry(pf, width=15); e.insert(0, f"{self.hdd_prices[cap]:.2f}"); e.grid(row=r, column=c*2+1, padx=10, pady=5)
             self.p_ents[cap] = e
-        
-        ttk.Button(self.t3, text="SAVE HDD PRICES", command=self.update_prices_in_logic).pack(pady=20)
+        ttk.Button(self.t3, text="SAVE HDD PRICES", command=self.update_prices).pack(pady=20)
 
-    def update_prices_in_logic(self):
+    def update_prices(self):
         try:
-            for cap, entry in self.p_ents.items():
-                self.hdd_prices[cap] = float(entry.get())
-            messagebox.showinfo("Success", "HDD Prices updated! Calculations will now use new rates.")
-        except ValueError:
-            messagebox.showerror("Error", "Please enter valid numeric prices (e.g. 150.00)")
+            for cap, entry in self.p_ents.items(): self.hdd_prices[cap] = float(entry.get())
+            messagebox.showinfo("Success", "HDD Prices Updated.")
+        except: messagebox.showerror("Error", "Invalid Price Format.")
 
     def save_camera(self):
         try:
-            name, qty, mbps, gb = self.ents["Name"].get(), self.ents["Qty"].get(), self.ents["Mbps"].get(), self.ents["GB"].get()
-            if not name: return
-            # If a row is selected, update it; otherwise, add new
-            selected = self.tree.selection()
-            if selected:
-                self.tree.item(selected[0], values=(name, qty, mbps, gb))
-            else:
-                self.tree.insert("", "end", values=(name, qty, mbps, gb))
+            n, q, m, g = self.ents["Name"].get(), self.ents["Qty"].get(), self.ents["Mbps"].get(), self.ents["GB"].get()
+            if not n: return
+            sel = self.tree.selection()
+            if sel: self.tree.item(sel[0], values=(n, q, m, g))
+            else: self.tree.insert("", "end", values=(n, q, m, g))
             for e in self.ents.values(): e.delete(0, tk.END)
-        except Exception as e: messagebox.showerror("Input Error", "Check your quantity/bandwidth numbers.")
+        except: pass
 
     def on_tree_select(self, event):
-        selected = self.tree.selection()
-        if not selected: return
-        vals = self.tree.item(selected[0])['values']
+        sel = self.tree.selection()
+        if not sel: return
+        v = self.tree.item(sel[0])['values']
         for i, label in enumerate(["Name", "Qty", "Mbps", "GB"]):
-            self.ents[label].delete(0, tk.END)
-            self.ents[label].insert(0, vals[i])
+            self.ents[label].delete(0, tk.END); self.ents[label].insert(0, v[i])
 
     def delete_camera(self):
         for i in self.tree.selection(): self.tree.delete(i)
 
     def clear_all_cams(self):
-        if messagebox.askyesno("Confirm", "Clear all camera data?"):
+        if messagebox.askyesno("Confirm", "Clear everything?"):
             for i in self.tree.get_children(): self.tree.delete(i)
 
     def find_cheapest(self):
@@ -144,50 +136,49 @@ class CCTVApp:
             cams.append({"name": str(v[0]), "qty": int(v[1]), "mbps": float(v[2]), "tb": float(v[3])/1024})
         
         if not cams: return
-        total_cams = sum(c['qty'] for c in cams); total_mbps = sum(c['qty'] * c['mbps'] for c in cams); total_tb = sum(c['qty'] * c['tb'] for c in cams)
-
+        t_c, t_m, t_t = sum(c['qty'] for c in cams), sum(c['qty']*c['mbps'] for c in cams), sum(c['qty']*c['tb'] for c in cams)
         mode = self.mode_var.get()
         hw_list, parity = (HOLIS_DATA, 0) if mode == "Holis" else (RAID_DATA, 1) if mode == "RAID 5" else (RAID_DATA, 2) if mode == "RAID 6" else (JBOD_DATA, 0)
         
-        best_overall_cost, best_overall_config = float('inf'), None
+        best_cost, best_cfg = float('inf'), None
 
         for m in hw_list:
-            n_qty_min = max(math.ceil(total_cams / m[2]), math.ceil(total_mbps / m[3]))
-            
-            if n_qty_min == 1:
-                h_cost, h_cfg = get_best_hdd(total_tb, m[4], parity, self.hdd_prices)
-                if h_cfg:
-                    total_cost = m[5] + h_cost
-                    if total_cost < best_overall_cost:
-                        best_overall_cost, best_overall_config = total_cost, {"m": m, "n_qty": 1, "units": [{"mb": total_mbps, "tb_req": total_tb, "h": h_cfg, "cam_count": total_cams}]}
-            
-            elif n_qty_min <= 2:
-                for i in range(1, total_cams):
-                    ratio = i / total_cams
-                    mb_1, tb_1 = total_mbps * ratio, total_tb * ratio
-                    mb_2, tb_2 = total_mbps * (1 - ratio), total_tb * (1 - ratio)
-                    if i > m[2] or (total_cams-i) > m[2] or mb_1 > m[3] or mb_2 > m[3]: continue
-                    cost1, h1 = get_best_hdd(tb_1, m[4], parity, self.hdd_prices)
-                    cost2, h2 = get_best_hdd(tb_2, m[4], parity, self.hdd_prices)
-                    if h1 and h2:
-                        total_cost = (m[5] * 2) + cost1 + cost2
-                        if total_cost < best_overall_cost:
-                            best_overall_cost, best_overall_config = total_cost, {"m": m, "n_qty": 2, "units": [{"h": h1, "mb": mb_1, "tb_req": tb_1, "cam_count": i}, {"h": h2, "mb": mb_2, "tb_req": tb_2, "cam_count": total_cams-i}]}
-        
-        self.res_txt.delete("1.0", tk.END)
-        if not best_overall_config: 
-            self.res_txt.insert(tk.END, "CRITICAL: No matching hardware solution found.")
-            return
-        
-        self.res_txt.insert(tk.END, f"--- DYNAMIC PERMUTATION REPORT ({mode}) ---\n")
-        self.res_txt.insert(tk.END, f"TOTAL PRICE: ${best_overall_cost:,.2f}\n")
-        self.res_txt.insert(tk.END, "="*60 + "\n\n")
+            n_min = max(math.ceil(t_c/m[2]), math.ceil(t_m/m[3]))
+            if n_min == 1:
+                cost, h = get_best_hdd(t_t, m[4], parity, self.hdd_prices)
+                if h and (m[5] + cost) < best_cost:
+                    best_cost, best_cfg = m[5] + cost, {"m": m, "n_qty": 1, "units": [{"mb": t_m, "tb": t_t, "h": h, "ratio": 1.0}]}
+            elif n_min <= 2:
+                for i in range(1, t_c):
+                    r = i / t_c
+                    m1, t1, m2, t2 = t_m*r, t_t*r, t_m*(1-r), t_t*(1-r)
+                    if i > m[2] or (t_c-i) > m[2] or m1 > m[3] or m2 > m[3]: continue
+                    c1, h1 = get_best_hdd(t1, m[4], parity, self.hdd_prices)
+                    c2, h2 = get_best_hdd(t2, m[4], parity, self.hdd_prices)
+                    if h1 and h2 and (m[5]*2 + c1 + c2) < best_cost:
+                        best_cost, best_cfg = m[5]*2 + c1 + c2, {"m": m, "n_qty": 2, "units": [{"h": h1, "mb": m1, "tb": t1, "ratio": r}, {"h": h2, "mb": m2, "tb": t2, "ratio": 1-r}]}
 
-        for idx, u in enumerate(best_overall_config['units']):
-            self.res_txt.insert(tk.END, f"UNIT #{idx+1} | {best_overall_config['m'][1]}\n")
-            self.res_txt.insert(tk.END, f"  Cams: {u['cam_count']} | Mbps: {u['mb']:.1f}/{best_overall_config['m'][3]} | Drives: {u['h']['qty']} x {u['h']['cap']}TB\n")
-            self.res_txt.insert(tk.END, f"  Usable RAID Capacity: {u['h']['total_tb']:.2f} TB (Required: {u['tb_req']:.2f} TB)\n")
-            self.res_txt.insert(tk.END, "-"*60 + "\n")
+        self.res_txt.delete("1.0", tk.END)
+        if not best_cfg: return
+        
+        self.res_txt.insert(tk.END, f"--- PERMUTATION AUDIT REPORT ({mode}) ---\n")
+        self.res_txt.insert(tk.END, f"GRAND TOTAL: ${best_cost:,.2f} (Hardware + Optimized HDDs)\n")
+        self.res_txt.insert(tk.END, "="*65 + "\n\n")
+
+        for idx, u in enumerate(best_cfg['units']):
+            self.res_txt.insert(tk.END, f"NVR UNIT #{idx+1} | {best_cfg['m'][1]} ({best_cfg['m'][0]})\n")
+            self.res_txt.insert(tk.END, "-"*65 + "\n")
+            self.res_txt.insert(tk.END, f"CAMERA ASSIGNMENT (Ratio: {u['ratio']:.2f}):\n")
+            for c in cams:
+                take = round(c['qty'] * u['ratio'])
+                if take > 0: self.res_txt.insert(tk.END, f"  > {c['name']}: {take} units\n")
+            
+            self.res_txt.insert(tk.END, f"\nTHROUGHPUT:\n  Used: {u['mb']:.1f} Mbps | Capacity: {best_cfg['m'][3]} Mbps ({((u['mb']/best_cfg['m'][3])*100):.1f}% load)\n")
+            self.res_txt.insert(tk.END, f"\nSTORAGE (Active RAID Partition):\n")
+            self.res_txt.insert(tk.END, f"  Config:   {u['h']['qty']} x {u['h']['cap']}TB Drives\n")
+            self.res_txt.insert(tk.END, f"  Required: {u['tb']:.2f} TB (Raw Data)\n")
+            self.res_txt.insert(tk.END, f"  Usable:   {u['h']['total_tb']:.2f} TB (After RAID Overhead)\n")
+            self.res_txt.insert(tk.END, "\n" + "="*65 + "\n\n")
 
 if __name__ == "__main__":
     r = tk.Tk(); r.geometry("950x850"); app = CCTVApp(r); r.mainloop()

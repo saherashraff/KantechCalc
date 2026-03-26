@@ -4,23 +4,33 @@ import math
 from collections import defaultdict
 
 # ------------------------------------------------------------
-# 1. HARDWARE DATA (Updated with No Throughput Restrictions)
+# 1. HARDWARE DATA (Corrected Mbps Limits)
 # ------------------------------------------------------------
+# Format: [Name, Part Number, Max Cam, Max Mbps, Slots, Price]
 RAID_DATA = [
-    ["1U RAID", "ADVER00N0NP16G", 32, 9999, 4, 3750.00],
-    ["2U 64 Ch", "ADVER12R0N2H", 64, 9999, 6, 10416.70],
-    ["2U 100 Ch", "ADVER00RN2J", 100, 9999, 8, 11666.70],
+    ["1U RAID", "ADVER00N0NP16G", 32, 50, 4, 3750.00],
+    ["2U 64 Ch", "ADVER12R0N2H", 64, 300, 6, 10416.70],
+    ["2U 100 Ch", "ADVER00RN2J", 100, 600, 8, 11666.70],
+    ["2U 128 Ch", "ADVER72R5N2H", 128, 600, 12, 25000.00],
+    ["2U Rack Mount 175 Ch", "ADVER02RDK", 175, 1000, 12, 13854.20],
+    ["2U Rack Mount 200 Ch", "ADVER02RDK", 200, 1500, 12, 12812.50],
 ]
 
 JBOD_DATA = [
-    ["Micro NVR", "ADVEM00N0NP8AH", 8, 9999, 1, 1500.00],
-    ["Desktop JBOD", "ADVED00N0N5H", 50, 9999, 2, 2291.70],
-    ["2U 75 Ch", "ADVER00N0N2J", 75, 9999, 4, 5312.50],
+    ["Micro NVR", "ADVEM00N0NP8AH", 8, 80, 1, 1500.00],
+    ["Desktop JBOD", "ADVED00N0N5H", 50, 200, 2, 2291.70],
+    ["2U 75 Ch", "ADVER00N0N2J", 75, 400, 4, 5312.50],
+    ["1U RAID", "ADVER00N0NP16G", 32, 50, 4, 3750.00],
+    ["2U 64 Ch", "ADVER12R0N2H", 64, 300, 6, 10416.70],
+    ["2U 100 Ch", "ADVER00RN2J", 100, 600, 8, 11666.70],
+    ["2U 128 Ch", "ADVER72R5N2H", 128, 600, 12, 25000.00],
+    ["2U Rack Mount 175 Ch", "ADVER02RDK", 175, 1000, 12, 13854.20],
+    ["2U Rack Mount 200 Ch", "ADVER02RDK", 200, 1500, 12, 12812.50],
 ]
 
 HOLIS_DATA = [
-    ["Holis 8 Ch", "HRN-08013P", 8, 9999, 1, 520.85],
-    ["Holis 16 Ch", "HRN-16023P", 16, 9999, 1, 770.85],
+    ["Holis 8 Ch", "HRN-08013P", 8, 9999, 1, 520.85], # NO LIMITS
+    ["Holis 16 Ch", "HRN-16023P", 16, 9999, 1, 770.85], # NO LIMITS
 ]
 
 DEFAULT_HDD_PRICES = {
@@ -50,7 +60,7 @@ def get_best_hdd(required_tb, slots, parity, price_dict):
 class CCTVApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("CCTV Absolute Brute-Force Optimizer v4.0")
+        self.root.title("CCTV Absolute Brute-Force Optimizer v4.1")
         self.camera_types = [] 
         self.hdd_prices = DEFAULT_HDD_PRICES.copy()
         self.setup_ui()
@@ -66,7 +76,6 @@ class CCTVApp:
         input_frame = ttk.LabelFrame(self.tab_calc, text=" Camera Configuration ", padding=10)
         input_frame.pack(fill="x", padx=10, pady=5)
         
-        # Fields
         f_names = ["Name", "Qty", "Mbps", "GB"]
         self.entries = {}
         for i, f in enumerate(f_names):
@@ -82,7 +91,6 @@ class CCTVApp:
         for c in f_names: self.tree.heading(c, text=c)
         self.tree.pack(fill="x", padx=10, pady=5)
 
-        # Mode Selection
         self.calc_mode = tk.StringVar(value="RAID5")
         m_frame = ttk.Frame(self.tab_calc)
         m_frame.pack(pady=5)
@@ -136,14 +144,12 @@ class CCTVApp:
         best_cost = float('inf')
         best_sol = None
 
-        # Deep Brute Force: Test 1 Unit vs 2 Units
         for nvr_qty in [1, 2]:
-            # To find the absolute cheapest, we test every possible model for each unit count
             for m1 in hw:
                 for m2 in hw if nvr_qty == 2 else [None]:
                     if nvr_qty == 1:
-                        t_t = sum(c['tb'] for c in flat_cams)
-                        if total_c <= m1[2]:
+                        t_m, t_t = sum(c['tp'] for c in flat_cams), sum(c['tb'] for c in flat_cams)
+                        if total_c <= m1[2] and t_m <= m1[3]: # RESTRICTION RESTORED
                             h_c, h_f = get_best_hdd(t_t, m1[4], parity, self.hdd_prices)
                             if h_f and (m1[5] + h_c) < best_cost:
                                 best_cost = m1[5] + h_c
@@ -151,8 +157,9 @@ class CCTVApp:
                     else:
                         for i in range(1, total_c):
                             l1, l2 = flat_cams[:i], flat_cams[i:]
-                            t1, t2 = sum(c['tb'] for c in l1), sum(c['tb'] for c in l2)
-                            if len(l1) <= m1[2] and len(l2) <= m2[2]:
+                            m1_t, t1 = sum(c['tp'] for c in l1), sum(c['tb'] for c in l1)
+                            m2_t, t2 = sum(c['tp'] for c in l2), sum(c['tb'] for c in l2)
+                            if len(l1) <= m1[2] and m1_t <= m1[3] and len(l2) <= m2[2] and m2_t <= m2[3]: # RESTRICTION RESTORED
                                 hc1, hf1 = get_best_hdd(t1, m1[4], parity, self.hdd_prices)
                                 hc2, hf2 = get_best_hdd(t2, m2[4], parity, self.hdd_prices)
                                 if hf1 and hf2:
@@ -165,7 +172,7 @@ class CCTVApp:
 
     def display(self, sol, cost, mode):
         self.txt.config(state="normal"); self.txt.delete("1.0", tk.END)
-        if not sol: self.txt.insert(tk.END, "No valid configuration.")
+        if not sol: self.txt.insert(tk.END, "No valid configuration. (Check Mbps or Cam Count limits)")
         else:
             self.txt.insert(tk.END, f"--- {mode} OPTIMIZED BILL OF MATERIALS | TOTAL: ${cost:,.2f} ---\n" + "="*80 + "\n")
             for i, u in enumerate(sol['units']):

@@ -1,6 +1,7 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 import math
+import os
 
 # ------------------------------------------------------------
 # 1. HARDWARE DATA
@@ -40,10 +41,14 @@ def get_best_hdd(required_tb, slots, parity, price_dict):
     if required_tb <= 1e-6: return 0, {"qty": 0, "cap": 0, "cost": 0, "total_tb": 0}
     best_h_cost = float('inf')
     best_h_cfg = None
+    
     for cap, price in sorted(price_dict.items()):
         if price <= 0: continue
-        data_drives = max(math.ceil(required_tb / cap), 2 if parity > 0 else 1)
+        # FIX: Holis/JBOD only needs 1 drive. RAID needs 2 data + parity.
+        min_data_drives = 2 if parity > 0 else 1
+        data_drives = max(math.ceil(required_tb / cap), min_data_drives)
         total_drives = data_drives + parity
+        
         if total_drives <= slots:
             total_price = total_drives * price
             if total_price < best_h_cost:
@@ -54,7 +59,7 @@ def get_best_hdd(required_tb, slots, parity, price_dict):
 class CCTVApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("CCTV MASTER V15 - FINAL AUDIT TOOL")
+        self.root.title("CCTV MASTER V16 - HOLIS FIXED + EXPORT")
         self.hdd_prices = DEFAULT_HDD_PRICES.copy()
         self.setup_ui()
 
@@ -63,7 +68,7 @@ class CCTVApp:
         self.t1, self.t2, self.t3 = ttk.Frame(self.nb), ttk.Frame(self.nb), ttk.Frame(self.nb)
         self.nb.add(self.t1, text=" 1. Camera Management "); self.nb.add(self.t2, text=" 2. Final Audit Report "); self.nb.add(self.t3, text=" 3. HDD Settings ")
 
-        # TAB 1: Cameras
+        # TAB 1
         f_in = ttk.Frame(self.t1, padding=10); f_in.pack(fill="x")
         self.ents = {}
         for i, label in enumerate(["Name", "Qty", "Mbps", "GB"]):
@@ -80,16 +85,17 @@ class CCTVApp:
         self.tree.pack(fill="both", expand=True, padx=10, pady=5)
         self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
 
-        # TAB 2: Report
+        # TAB 2
         f_b = ttk.Frame(self.t2, padding=15); f_b.pack(fill="x")
         self.mode_var = tk.StringVar(value="RAID 5")
         ttk.Combobox(f_b, textvariable=self.mode_var, values=["RAID 5", "RAID 6", "JBOD", "Holis"], state="readonly").pack(side="left", padx=5)
         ttk.Button(f_b, text="GENERATE AUDIT", command=self.find_cheapest).pack(side="left", padx=5)
+        ttk.Button(f_b, text="EXPORT TO .TXT", command=self.export_report).pack(side="left", padx=5)
         
         self.res_txt = tk.Text(self.t2, bg="#ffffff", fg="#000000", font=("Consolas", 10), wrap="none")
         self.res_txt.pack(fill="both", expand=True, padx=10, pady=5)
 
-        # TAB 3: HDDs
+        # TAB 3
         pf = ttk.Frame(self.t3, padding=20); pf.pack(fill="both", expand=True)
         self.p_ents = {}
         for i, cap in enumerate(sorted(self.hdd_prices.keys())):
@@ -159,26 +165,39 @@ class CCTVApp:
                         best_cost, best_cfg = m[5]*2 + c1 + c2, {"m": m, "n_qty": 2, "units": [{"h": h1, "mb": m1, "tb": t1, "ratio": r}, {"h": h2, "mb": m2, "tb": t2, "ratio": 1-r}]}
 
         self.res_txt.delete("1.0", tk.END)
-        if not best_cfg: return
+        if not best_cfg: 
+            self.res_txt.insert(tk.END, "ERROR: Load exceeds device capacity or HDD limits.")
+            return
         
-        self.res_txt.insert(tk.END, f"--- PERMUTATION AUDIT REPORT ({mode}) ---\n")
-        self.res_txt.insert(tk.END, f"GRAND TOTAL: ${best_cost:,.2f} (Hardware + Optimized HDDs)\n")
-        self.res_txt.insert(tk.END, "="*65 + "\n\n")
+        # Formatting report exactly as requested
+        report = f"--- PERMUTATION AUDIT REPORT ({mode}) ---\n"
+        report += f"GRAND TOTAL: ${best_cost:,.2f} (Hardware + Optimized HDDs)\n"
+        report += "="*65 + "\n\n"
 
         for idx, u in enumerate(best_cfg['units']):
-            self.res_txt.insert(tk.END, f"NVR UNIT #{idx+1} | {best_cfg['m'][1]} ({best_cfg['m'][0]})\n")
-            self.res_txt.insert(tk.END, "-"*65 + "\n")
-            self.res_txt.insert(tk.END, f"CAMERA ASSIGNMENT (Ratio: {u['ratio']:.2f}):\n")
+            report += f"NVR UNIT #{idx+1} | {best_cfg['m'][1]} ({best_cfg['m'][0]})\n"
+            report += "-"*65 + "\n"
+            report += f"CAMERA ASSIGNMENT (Ratio: {u['ratio']:.2f}):\n"
             for c in cams:
                 take = round(c['qty'] * u['ratio'])
-                if take > 0: self.res_txt.insert(tk.END, f"  > {c['name']}: {take} units\n")
+                if take > 0: report += f"  > {c['name']}: {take} units\n"
             
-            self.res_txt.insert(tk.END, f"\nTHROUGHPUT:\n  Used: {u['mb']:.1f} Mbps | Capacity: {best_cfg['m'][3]} Mbps ({((u['mb']/best_cfg['m'][3])*100):.1f}% load)\n")
-            self.res_txt.insert(tk.END, f"\nSTORAGE (Active RAID Partition):\n")
-            self.res_txt.insert(tk.END, f"  Config:   {u['h']['qty']} x {u['h']['cap']}TB Drives\n")
-            self.res_txt.insert(tk.END, f"  Required: {u['tb']:.2f} TB (Raw Data)\n")
-            self.res_txt.insert(tk.END, f"  Usable:   {u['h']['total_tb']:.2f} TB (After RAID Overhead)\n")
-            self.res_txt.insert(tk.END, "\n" + "="*65 + "\n\n")
+            report += f"\nTHROUGHPUT:\n  Used: {u['mb']:.1f} Mbps | Capacity: {best_cfg['m'][3]} Mbps ({((u['mb']/best_cfg['m'][3])*100):.1f}% load)\n"
+            report += f"\nSTORAGE ({'JBOD' if parity==0 else 'Active RAID Partition'}):\n"
+            report += f"  Config:   {u['h']['qty']} x {u['h']['cap']}TB Drives\n"
+            report += f"  Required: {u['tb']:.2f} TB (Raw Data)\n"
+            report += f"  Usable:   {u['h']['total_tb']:.2f} TB\n"
+            report += "\n" + "="*65 + "\n\n"
+        
+        self.res_txt.insert(tk.END, report)
+
+    def export_report(self):
+        content = self.res_txt.get("1.0", tk.END).strip()
+        if not content: return
+        path = filedialog.asksaveasfilename(defaultextension=".txt", filetypes=[("Text files", "*.txt")])
+        if path:
+            with open(path, "w") as f: f.write(content)
+            messagebox.showinfo("Exported", f"Report saved to {path}")
 
 if __name__ == "__main__":
     r = tk.Tk(); r.geometry("950x850"); app = CCTVApp(r); r.mainloop()

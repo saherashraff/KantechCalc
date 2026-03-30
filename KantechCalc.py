@@ -25,6 +25,8 @@ HOLIS_DATA = [
     ["Holis 16 Ch", "HRN-16023P", 16, 320, 2, 770.85],
 ]
 
+ALL_MODELS = RAID_DATA + JBOD_ONLY_DATA + HOLIS_DATA
+
 DEFAULT_HDD_PRICES = {
     1: 93.75, 2: 122.95, 4: 218.75, 6: 281.25, 8: 395.85, 
     10: 416.7, 12: 687.50, 14: 1041.7, 18: 1052.1, 22: 1145.85, 
@@ -49,16 +51,17 @@ def get_best_hdd(required_tb, slots, parity, price_dict):
 class CCTVApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("CCTV MASTER V22 - GRANULAR CAMERA SPLIT ENGINE")
+        self.root.title("CCTV MASTER V22.1 - AUTO & MANUAL HYBRID")
         self.hdd_prices = DEFAULT_HDD_PRICES.copy()
         self.setup_ui()
 
     def setup_ui(self):
         self.nb = ttk.Notebook(self.root); self.nb.pack(fill="both", expand=True, padx=5, pady=5)
-        self.t1, self.t2, self.t3 = ttk.Frame(self.nb), ttk.Frame(self.nb), ttk.Frame(self.nb)
-        self.nb.add(self.t1, text=" 1. Camera Management "); self.nb.add(self.t2, text=" 2. Final Audit Report "); self.nb.add(self.t3, text=" 3. HDD Settings ")
+        self.t1, self.t2, self.t4, self.t3 = ttk.Frame(self.nb), ttk.Frame(self.nb), ttk.Frame(self.nb), ttk.Frame(self.nb)
+        self.nb.add(self.t1, text=" 1. Cameras "); self.nb.add(self.t2, text=" 2. Auto Audit "); 
+        self.nb.add(self.t4, text=" 3. Manual Hybrid "); self.nb.add(self.t3, text=" 4. HDD Settings ")
 
-        # Tab 1
+        # --- TAB 1: CAMERAS ---
         f_in = ttk.Frame(self.t1, padding=10); f_in.pack(fill="x")
         self.ents = {}
         for i, label in enumerate(["Name", "Qty", "Mbps", "GB"]):
@@ -66,109 +69,141 @@ class CCTVApp:
             e = ttk.Entry(f_in, width=12); e.grid(row=0, column=i*2+1, padx=5); self.ents[label] = e
         btn_f = ttk.Frame(self.t1, padding=5); btn_f.pack(fill="x", padx=10)
         ttk.Button(btn_f, text="Add/Update Row", command=self.save_camera).pack(side="left", padx=2)
-        ttk.Button(btn_f, text="Delete Selected", command=self.delete_camera).pack(side="left", padx=2)
+        ttk.Button(btn_f, text="Delete", command=self.delete_camera).pack(side="left", padx=2)
         self.tree = ttk.Treeview(self.t1, columns=("N","Q","M","G"), show="headings", height=15)
         for c, h in zip(self.tree["columns"], ["Type Name","Qty","Mbps","GB/Cam"]): self.tree.heading(c, text=h)
         self.tree.pack(fill="both", expand=True, padx=10, pady=5)
 
-        # Tab 2
+        # --- TAB 2: AUTO ---
         f_b = ttk.Frame(self.t2, padding=15); f_b.pack(fill="x")
         self.mode_var = tk.StringVar(value="RAID 5")
         ttk.Combobox(f_b, textvariable=self.mode_var, values=["RAID 5", "RAID 6", "JBOD", "Holis"], state="readonly").pack(side="left", padx=5)
-        ttk.Button(f_b, text="RUN GRANULAR AUDIT", command=self.find_cheapest).pack(side="left", padx=5)
-        self.res_txt = tk.Text(self.t2, bg="#ffffff", fg="#000000", font=("Consolas", 10), wrap="none")
-        self.res_txt.pack(fill="both", expand=True, padx=10, pady=5)
+        ttk.Button(f_b, text="RUN GRANULAR AUTO AUDIT", command=lambda: self.run_logic(auto=True)).pack(side="left", padx=5)
+        self.res_txt = tk.Text(self.t2, bg="#ffffff", font=("Consolas", 10)); self.res_txt.pack(fill="both", expand=True, padx=10, pady=5)
 
-        # Tab 3
+        # --- TAB 3: MANUAL HYBRID ---
+        f_m = ttk.Frame(self.t4, padding=15); f_m.pack(fill="x")
+        
+        # NVR A Selection
+        ttk.Label(f_m, text="NVR A:").grid(row=0, column=0, sticky="w")
+        self.nvr_a_var = tk.StringVar()
+        self.combo_a = ttk.Combobox(f_m, textvariable=self.nvr_a_var, width=30, values=[m[1] for m in ALL_MODELS], state="readonly")
+        self.combo_a.grid(row=0, column=1, padx=5)
+        self.mode_a = tk.StringVar(value="RAID 5")
+        ttk.Combobox(f_m, textvariable=self.mode_a, values=["RAID 5", "RAID 6", "JBOD", "Holis"], width=10, state="readonly").grid(row=0, column=2)
+
+        # NVR B Selection
+        ttk.Label(f_m, text="NVR B:").grid(row=1, column=0, sticky="w")
+        self.nvr_b_var = tk.StringVar()
+        self.combo_b = ttk.Combobox(f_m, textvariable=self.nvr_b_var, width=30, values=["None"] + [m[1] for m in ALL_MODELS], state="readonly")
+        self.combo_b.grid(row=1, column=1, padx=5, pady=5)
+        self.mode_b = tk.StringVar(value="RAID 5")
+        ttk.Combobox(f_m, textvariable=self.mode_b, values=["RAID 5", "RAID 6", "JBOD", "Holis"], width=10, state="readonly").grid(row=1, column=2)
+
+        # Manual Cam Split
+        ttk.Label(f_m, text="Cams on NVR A:").grid(row=2, column=0, sticky="w")
+        self.cam_split_val = tk.IntVar(value=1)
+        self.split_slider = tk.Scale(f_m, from_=1, to=100, orient="horizontal", variable=self.cam_split_val, length=200)
+        self.split_slider.grid(row=2, column=1, sticky="w")
+
+        ttk.Button(f_m, text="CALCULATE MANUAL SPLIT", command=lambda: self.run_logic(auto=False)).grid(row=3, column=1, pady=10)
+        self.man_txt = tk.Text(self.t4, bg="#f5f5f5", font=("Consolas", 10)); self.man_txt.pack(fill="both", expand=True, padx=10, pady=5)
+
+        # --- TAB 4: HDD SETTINGS ---
         pf = ttk.Frame(self.t3, padding=20); pf.pack(fill="both", expand=True)
         self.p_ents = {}
         for i, cap in enumerate(sorted(self.hdd_prices.keys())):
             r, c = divmod(i, 2)
             ttk.Label(pf, text=f"{cap}TB Drive $:").grid(row=r, column=c*2, sticky="e", pady=5)
             e = ttk.Entry(pf, width=15); e.insert(0, f"{self.hdd_prices[cap]:.2f}"); e.grid(row=r, column=c*2+1, padx=10, pady=5); self.p_ents[cap] = e
-        ttk.Button(self.t3, text="SAVE HDD PRICES", command=self.update_prices).pack(pady=20)
+        ttk.Button(self.t3, text="SAVE PRICES", command=self.update_prices).pack(pady=20)
 
     def update_prices(self):
-        try:
-            for cap, entry in self.p_ents.items(): self.hdd_prices[cap] = float(entry.get())
-            messagebox.showinfo("Success", "Updated.")
-        except: messagebox.showerror("Error", "Invalid format.")
+        for cap, entry in self.p_ents.items(): self.hdd_prices[cap] = float(entry.get())
+        messagebox.showinfo("Success", "Prices Updated.")
 
     def save_camera(self):
         n, q, m, g = self.ents["Name"].get(), self.ents["Qty"].get(), self.ents["Mbps"].get(), self.ents["GB"].get()
-        if n: self.tree.insert("", "end", values=(n, q, m, g))
+        if n: 
+            self.tree.insert("", "end", values=(n, q, m, g))
+            total_cams = sum(int(self.tree.item(i)['values'][1]) for i in self.tree.get_children())
+            self.split_slider.config(to=total_cams)
 
     def delete_camera(self):
         for i in self.tree.selection(): self.tree.delete(i)
 
-    def find_cheapest(self):
+    def run_logic(self, auto=True):
         cams = []
         for i in self.tree.get_children():
             v = self.tree.item(i)['values']
-            cams.append({"name": str(v[0]), "qty": int(v[1]), "mbps": float(v[2]), "tb": float(v[3])/1024})
+            cams.append({"qty": int(v[1]), "mbps": float(v[2]), "tb": float(v[3])/1024})
         
         if not cams: return
-        total_cams = sum(c['qty'] for c in cams)
-        total_mbps = sum(c['qty']*c['mbps'] for c in cams)
-        total_tb = sum(c['qty']*c['tb'] for c in cams)
-        
-        mode = self.mode_var.get()
-        if mode == "Holis": hw_list, parity = HOLIS_DATA, 0
-        elif mode == "RAID 5": hw_list, parity = RAID_DATA, 1
-        elif mode == "RAID 6": hw_list, parity = RAID_DATA, 2
-        else: hw_list, parity = RAID_DATA + JBOD_ONLY_DATA, 0
+        t_c, t_m, t_t = sum(c['qty'] for c in cams), sum(c['qty']*c['mbps'] for c in cams), sum(c['qty']*c['tb'] for c in cams)
         
         best_cost, best_cfg = float('inf'), None
 
-        # --- 1. Check Single Units ---
-        for m in hw_list:
-            if total_cams <= m[2] and total_mbps <= m[3]:
-                hc, h = get_best_hdd(total_tb, m[4], parity, self.hdd_prices)
-                if h and (m[5] + hc) < best_cost:
-                    best_cost, best_cfg = m[5] + hc, {"units": [{"m": m, "c": total_cams, "mb": total_mbps, "tb": total_tb, "h": h}]}
+        if auto:
+            mode = self.mode_var.get()
+            if mode == "Holis": hw_list, parity = HOLIS_DATA, 0
+            elif mode == "RAID 5": hw_list, parity = RAID_DATA, 1
+            elif mode == "RAID 6": hw_list, parity = RAID_DATA, 2
+            else: hw_list, parity = RAID_DATA + JBOD_ONLY_DATA, 0
+            
+            # Auto Scan
+            for m_a in hw_list:
+                for m_b in hw_list:
+                    for c_a in range(1, t_c + 1):
+                        c_b = t_c - c_a
+                        ratio = c_a / t_c
+                        ma, ta = t_m * ratio, t_t * ratio
+                        mb, tb = t_m - ma, t_t - ta
+                        
+                        # Unit A
+                        if c_a > m_a[2] or ma > m_a[3]: continue
+                        ca, ha = get_best_hdd(ta, m_a[4], parity, self.hdd_prices)
+                        if not ha: continue
+                        
+                        if c_b == 0: # Single NVR
+                            if (m_a[5] + ca) < best_cost:
+                                best_cost, best_cfg = m_a[5] + ca, {"units": [{"m": m_a, "c": c_a, "mb": ma, "tb": ta, "h": ha}]}
+                        else: # Dual NVR
+                            if c_b > m_b[2] or mb > m_b[3]: continue
+                            cb, hb = get_best_hdd(tb, m_b[4], parity, self.hdd_prices)
+                            if hb and (m_a[5] + ca + m_b[5] + cb) < best_cost:
+                                best_cost, best_cfg = m_a[5] + ca + m_b[5] + cb, {"units": [
+                                    {"m": m_a, "c": c_a, "mb": ma, "tb": ta, "h": ha},
+                                    {"m": m_b, "c": c_b, "mb": mb, "tb": tb, "h": hb}
+                                ]}
+        else:
+            # Manual Mode
+            nvr_a = [m for m in ALL_MODELS if m[1] == self.nvr_a_var.get()][0]
+            par_a = 1 if self.mode_a.get() == "RAID 5" else 2 if self.mode_a.get() == "RAID 6" else 0
+            c_a = self.cam_split_val.get()
+            ratio = c_a / t_c
+            ma, ta = t_m * ratio, t_t * ratio
+            ca, ha = get_best_hdd(ta, nvr_a[4], par_a, self.hdd_prices)
+            
+            if self.nvr_b_var.get() == "None":
+                best_cost, best_cfg = nvr_a[5] + ca, {"units": [{"m": nvr_a, "c": c_a, "mb": ma, "tb": ta, "h": ha}]}
+            else:
+                nvr_b = [m for m in ALL_MODELS if m[1] == self.nvr_b_var.get()][0]
+                par_b = 1 if self.mode_b.get() == "RAID 5" else 2 if self.mode_b.get() == "RAID 6" else 0
+                c_b = t_c - c_a
+                mb, tb = t_m - ma, t_t - ta
+                cb, hb = get_best_hdd(tb, nvr_b[4], par_b, self.hdd_prices)
+                best_cost, best_cfg = nvr_a[5] + ca + nvr_b[5] + cb, {"units": [
+                    {"m": nvr_a, "c": c_a, "mb": ma, "tb": ta, "h": ha},
+                    {"m": nvr_b, "c": c_b, "mb": mb, "tb": tb, "h": hb}
+                ]}
 
-        # --- 2. Check Granular Split (1-Camera Increments) ---
-        # We test every NVR A against every NVR B
-        for m_a in hw_list:
-            for m_b in hw_list:
-                # Test every possible camera count on NVR A
-                for c_a in range(1, total_cams):
-                    c_b = total_cams - c_a
-                    
-                    # Calculate proportional load
-                    ratio_a = c_a / total_cams
-                    mb_a, tb_a = total_mbps * ratio_a, total_tb * ratio_a
-                    mb_b, tb_b = total_mbps - mb_a, total_tb - tb_a
-                    
-                    # Physical check
-                    if c_a > m_a[2] or mb_a > m_a[3] or c_b > m_b[2] or mb_b > m_b[3]: continue
-                    
-                    cost_a, h_a = get_best_hdd(tb_a, m_a[4], parity, self.hdd_prices)
-                    cost_b, h_b = get_best_hdd(tb_b, m_b[4], parity, self.hdd_prices)
-                    
-                    if h_a and h_b:
-                        total = m_a[5] + cost_a + m_b[5] + cost_b
-                        if total < best_cost:
-                            best_cost, best_cfg = total, {"units": [
-                                {"m": m_a, "c": c_a, "mb": mb_a, "tb": tb_a, "h": h_a},
-                                {"m": m_b, "c": c_b, "mb": mb_b, "tb": tb_b, "h": h_b}
-                            ]}
-
-        self.res_txt.delete("1.0", tk.END)
-        if not best_cfg:
-            self.res_txt.insert(tk.END, "CRITICAL: Load exceeds physical capacity of dual-unit combinations.")
-            return
-
-        out = f"--- GRANULAR CAM-BY-CAM AUDIT ({mode}) ---\n"
-        out += f"TOTAL SOLUTION COST: ${best_cost:,.2f}\n" + "="*65 + "\n\n"
+        txt = self.res_txt if auto else self.man_txt
+        txt.delete("1.0", tk.END)
+        if not best_cfg: return
+        out = f"AUDIT RESULT | TOTAL: ${best_cost:,.2f}\n" + "="*50 + "\n"
         for i, u in enumerate(best_cfg['units']):
-            out += f"UNIT #{i+1} | {u['m'][1]} ({u['m'][0]})\n"
-            out += f"  - Cameras: {u['c']} units\n"
-            out += f"  - Load:    {u['mb']:.1f} Mbps\n"
-            out += f"  - Drives:  {u['h']['qty']} x {u['h']['cap']}TB\n"
-            out += f"  - Storage: {u['h']['total_tb']:.2f} TB Usable (Req: {u['tb']:.2f})\n"
-            out += "-"*65 + "\n"
-        self.res_txt.insert(tk.END, out)
+            out += f"UNIT {i+1}: {u['m'][1]} | {u['c']} Cams | {u['h']['qty']}x{u['h']['cap']}TB\n"
+        txt.insert(tk.END, out)
 
 if __name__ == "__main__":
     r = tk.Tk(); r.geometry("950x850"); app = CCTVApp(r); r.mainloop()

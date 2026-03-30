@@ -97,26 +97,28 @@ class CCTVApp:
         self.res_txt = tk.Text(self.t2, bg="#ffffff", font=("Consolas", 10))
         self.res_txt.pack(fill="both", expand=True, padx=10, pady=5)
 
-        # --- TAB 3: MANUAL HYBRID ---
+        # --- TAB 3: MANUAL HYBRID (UPDATED FOR A, B, C, D) ---
         f_m = ttk.Frame(self.t4, padding=15); f_m.pack(fill="x")
         
-        # NVR A
-        ttk.Label(f_m, text="NVR A:").grid(row=0, column=0, sticky="w")
-        self.nvr_a_var = tk.StringVar()
-        self.combo_a = ttk.Combobox(f_m, textvariable=self.nvr_a_var, width=35, values=[m[1] for m in ALL_MODELS], state="readonly")
-        self.combo_a.grid(row=0, column=1, padx=5)
-        self.mode_a = tk.StringVar(value="RAID 5")
-        ttk.Combobox(f_m, textvariable=self.mode_a, values=["RAID 5", "RAID 6", "JBOD", "Holis"], width=10, state="readonly").grid(row=0, column=2)
+        self.manual_slots = []
+        for i, char in enumerate(["A", "B", "C", "D"]):
+            ttk.Label(f_m, text=f"NVR {char}:").grid(row=i, column=0, sticky="w", pady=2)
+            
+            nvr_var = tk.StringVar()
+            vals = [m[1] for m in ALL_MODELS]
+            if char != "A": vals = ["None"] + vals
+            
+            combo = ttk.Combobox(f_m, textvariable=nvr_var, width=35, values=vals, state="readonly")
+            combo.grid(row=i, column=1, padx=5, pady=2)
+            if char == "A": combo.current(0)
+            else: combo.set("None")
 
-        # NVR B
-        ttk.Label(f_m, text="NVR B:").grid(row=1, column=0, sticky="w", pady=5)
-        self.nvr_b_var = tk.StringVar()
-        self.combo_b = ttk.Combobox(f_m, textvariable=self.nvr_b_var, width=35, values=["None"] + [m[1] for m in ALL_MODELS], state="readonly")
-        self.combo_b.grid(row=1, column=1, padx=5)
-        self.mode_b = tk.StringVar(value="RAID 5")
-        ttk.Combobox(f_m, textvariable=self.mode_b, values=["RAID 5", "RAID 6", "JBOD", "Holis"], width=10, state="readonly").grid(row=1, column=2)
+            mode_var = tk.StringVar(value="RAID 5")
+            ttk.Combobox(f_m, textvariable=mode_var, values=["RAID 5", "RAID 6", "JBOD", "Holis"], width=10, state="readonly").grid(row=i, column=2, pady=2)
+            
+            self.manual_slots.append({"nvr": nvr_var, "mode": mode_var})
 
-        ttk.Button(f_m, text="CALCULATE OPTIMAL SPLIT FOR THESE TWO", command=lambda: self.run_logic(auto=False)).grid(row=2, column=1, pady=15)
+        ttk.Button(f_m, text="CALCULATE OPTIMAL SPLIT ACROSS SELECTED", command=lambda: self.run_logic(auto=False)).grid(row=5, column=1, pady=15)
         self.man_txt = tk.Text(self.t4, bg="#f9f9f9", font=("Consolas", 10))
         self.man_txt.pack(fill="both", expand=True, padx=10, pady=5)
 
@@ -159,24 +161,20 @@ class CCTVApp:
             report += f"UNIT #{i+1}: {u['m'][0]} ({u['m'][1]}) | MODE: {u['mode']}\n"
             report += f"{'-'*80}\n"
             
-            # Cameras
             report += f"[CAMERAS ASSIGNED: {u['c']} UNITS]\n"
             for c in cams:
                 share = round(c['qty'] * (u['c']/t_c))
                 if share > 0: report += f"  - {c['name']}: {share} units\n"
             
-            # Throughput
             report += f"\n[THROUGHPUT]\n"
             report += f"  Used: {u['mb']:>8.2f} Mbps / Max: {u['m'][3]:>8} Mbps ({ (u['mb']/u['m'][3]*100):.1f}%)\n"
 
-            # Storage
             report += f"\n[STORAGE]\n"
-            report += f"  Config:   {u['h']['qty']} x {u['h']['cap']}TB Drives\n"
+            report += f"  Config:    {u['h']['qty']} x {u['h']['cap']}TB Drives\n"
             report += f"  Required: {u['tb']:>8.2f} TB / Usable: {u['h']['total_tb']:>8.2f} TB\n"
-            report += f"  Slots:    {u['h']['qty']} of {u['m'][4]} slots used\n"
+            report += f"  Slots:     {u['h']['qty']} of {u['m'][4]} slots used\n"
             report += "\n" + "="*80 + "\n\n"
             
-            # Add to shopping list
             nvr_name = f"{u['m'][0]} ({u['m'][1]})"
             shopping_list[nvr_name] = shopping_list.get(nvr_name, 0) + 1
             hdd_name = f"{u['h']['cap']}TB Surveillance Drive"
@@ -202,21 +200,19 @@ class CCTVApp:
         best_cost, best_cfg = float('inf'), None
 
         if auto:
+            # (Keep original Auto Logic)
             mode = self.mode_var.get()
             hw_pool = RAID_DATA + (JBOD_ONLY_DATA if mode == "JBOD" else []) + (HOLIS_DATA if mode == "Holis" else [])
             parity = 1 if mode == "RAID 5" else 2 if mode == "RAID 6" else 0
-            
             for m_a in hw_pool:
                 for m_b in hw_pool:
                     for c_a in range(1, t_c + 1):
                         c_b = t_c - c_a
                         r = c_a / t_c
                         ma, ta, mb, tb = t_m*r, t_t*r, t_m*(1-r), t_t*(1-r)
-                        
                         if c_a > m_a[2] or ma > m_a[3]: continue
                         ca, ha = get_best_hdd(ta, m_a[4], parity, self.hdd_prices)
                         if not ha: continue
-                        
                         if c_b == 0:
                             if (m_a[5] + ca) < best_cost:
                                 best_cost = m_a[5] + ca
@@ -231,36 +227,38 @@ class CCTVApp:
                                     {"m": m_b, "c": c_b, "mb": mb, "tb": tb, "h": hb, "mode": mode}
                                 ]}
         else:
-            # Manual Mode - Calculate best split for selected units
-            sel_a = [m for m in ALL_MODELS if m[1] == self.nvr_a_var.get()][0]
-            par_a = 1 if self.mode_a.get() == "RAID 5" else 2 if self.mode_a.get() == "RAID 6" else 0
-            sel_b_name = self.nvr_b_var.get()
+            # Manual Mode - Logic for A, B, C, and D
+            selected_units = []
+            for slot in self.manual_slots:
+                name = slot['nvr'].get()
+                if name != "None":
+                    hw = [m for m in ALL_MODELS if m[1] == name][0]
+                    parity = 1 if slot['mode'].get() == "RAID 5" else 2 if slot['mode'].get() == "RAID 6" else 0
+                    selected_units.append({"hw": hw, "mode": slot['mode'].get(), "parity": parity})
             
-            for c_a in range(1, t_c + 1):
-                c_b = t_c - c_a
-                r = c_a / t_c
-                ma, ta, mb, tb = t_m*r, t_t*r, t_m*(1-r), t_t*(1-r)
+            num_u = len(selected_units)
+            # Simple equal distribution logic for manual split
+            unit_cfgs = []
+            current_cost = 0
+            possible = True
+            
+            for i, unit in enumerate(selected_units):
+                c_u = t_c // num_u + (1 if i < (t_c % num_u) else 0)
+                ratio = c_u / t_c
+                mu, tu = t_m * ratio, t_t * ratio
                 
-                if c_a > sel_a[2] or ma > sel_a[3]: continue
-                ca, ha = get_best_hdd(ta, sel_a[4], par_a, self.hdd_prices)
-                if not ha: continue
+                if c_u > unit['hw'][2] or mu > unit['hw'][3]:
+                    possible = False; break
                 
-                if sel_b_name == "None":
-                    if c_b == 0:
-                        if (sel_a[5] + ca) < best_cost:
-                            best_cost = sel_a[5] + ca
-                            best_cfg = {"total": best_cost, "units": [{"m": sel_a, "c": c_a, "mb": ma, "tb": ta, "h": ha, "mode": self.mode_a.get()}]}
-                else:
-                    sel_b = [m for m in ALL_MODELS if m[1] == sel_b_name][0]
-                    par_b = 1 if self.mode_b.get() == "RAID 5" else 2 if self.mode_b.get() == "RAID 6" else 0
-                    if c_b > sel_b[2] or mb > sel_b[3]: continue
-                    cb, hb = get_best_hdd(tb, sel_b[4], par_b, self.hdd_prices)
-                    if hb and (sel_a[5] + ca + sel_b[5] + cb) < best_cost:
-                        best_cost = sel_a[5] + ca + sel_b[5] + cb
-                        best_cfg = {"total": best_cost, "units": [
-                            {"m": sel_a, "c": c_a, "mb": ma, "tb": ta, "h": ha, "mode": self.mode_a.get()},
-                            {"m": sel_b, "c": c_b, "mb": mb, "tb": tb, "h": hb, "mode": self.mode_b.get()}
-                        ]}
+                hu_cost, hu_data = get_best_hdd(tu, unit['hw'][4], unit['parity'], self.hdd_prices)
+                if not hu_data:
+                    possible = False; break
+                
+                current_cost += unit['hw'][5] + hu_cost
+                unit_cfgs.append({"m": unit['hw'], "c": c_u, "mb": mu, "tb": tu, "h": hu_data, "mode": unit['mode']})
+            
+            if possible:
+                best_cfg = {"total": current_cost, "units": unit_cfgs}
 
         txt = self.res_txt if auto else self.man_txt
         txt.delete("1.0", tk.END)

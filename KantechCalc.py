@@ -3,7 +3,7 @@ from tkinter import ttk, messagebox
 import math
 import itertools
 
-# --- STRICT DATA SETS ---
+# --- DATA SETS ---
 RAID_ONLY = [
     ["1U RAID", "ADVER00N0NP16G", 32, 50, 4, 3750.00],
     ["2U 64 Ch", "ADVER12R0N2H", 64, 300, 6, 10416.70],
@@ -40,7 +40,7 @@ def get_best_hdd(required_tb, slots, parity, price_dict):
 class CCTVApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("CCTV MASTER V26.2 - BRUTE-FORCE CAMERA SPLIT")
+        self.root.title("CCTV MASTER V27.0 - ACCURATE INVENTORY SPLIT")
         self.hdd_prices = DEFAULT_HDD_PRICES.copy()
         self.setup_ui()
 
@@ -64,14 +64,14 @@ class CCTVApp:
         self.tree.pack(fill="both", expand=True, padx=10, pady=5)
         self.tree.bind("<Double-1>", self.on_double_click)
 
-        # TAB 2
+        # TAB 2 (AUTO)
         f_b = ttk.Frame(self.t2, padding=10); f_b.pack(fill="x")
         self.mode_var = tk.StringVar(value="RAID 5")
         ttk.Combobox(f_b, textvariable=self.mode_var, values=["RAID 5", "RAID 6", "JBOD"], state="readonly").pack(side="left")
-        ttk.Button(f_b, text="RUN BRUTE-FORCE AUTO", command=lambda: self.run_logic(True)).pack(side="left", padx=10)
+        ttk.Button(f_b, text="RUN ACCURATE AUTO", command=lambda: self.run_logic(True)).pack(side="left", padx=10)
         self.res_txt = tk.Text(self.t2, font=("Consolas", 10)); self.res_txt.pack(fill="both", expand=True, padx=5)
 
-        # TAB 3
+        # TAB 3 (MANUAL)
         f_m = ttk.Frame(self.t4, padding=10); f_m.pack(fill="x")
         self.manual_slots = []
         for i, char in enumerate(["A", "B", "C", "D"]):
@@ -83,7 +83,7 @@ class CCTVApp:
         ttk.Button(f_m, text="CALCULATE MANUAL SPLIT", command=lambda: self.run_logic(False)).grid(row=5, column=1, pady=10)
         self.man_txt = tk.Text(self.t4, font=("Consolas", 10), bg="#f4f4f4"); self.man_txt.pack(fill="both", expand=True, padx=5)
 
-        # TAB 4
+        # TAB 4 (HDD)
         f_hdd = ttk.Frame(self.t3, padding=20); f_hdd.pack(fill="both", expand=True)
         self.hdd_entries = {}
         for i, cap in enumerate(sorted(self.hdd_prices.keys())):
@@ -110,14 +110,15 @@ class CCTVApp:
         for i, k in enumerate(["Name", "Qty", "Mbps", "GB"]): self.ents[k].delete(0, tk.END); self.ents[k].insert(0, v[i])
         self.tree.delete(item)
 
-    def generate_detailed_report(self, cfg, cams, t_c, title):
+    def generate_detailed_report(self, cfg, title):
+        # We now use the pre-calculated camera breakdown per unit
         report = f"--- {title} SOLUTION REPORT ---\nFINAL TOTAL SYSTEM COST: ${cfg['total']:,.2f}\n" + "="*75 + "\n\n"
         for i, u in enumerate(cfg['units']):
             report += f"UNIT #{i+1}: {u['m'][0]} [{u['m'][1]}]\nCONFIGURATION MODE: {u['mode']}\n" + "-"*50 + "\n"
-            report += f"CAMERAS ASSIGNED: {u['c']} total\n"
-            for c in cams:
-                share = round(c['qty'] * (u['c'] / t_c)) if t_c > 0 else 0
-                if share > 0: report += f"  > {c['name']}: {share} units\n"
+            report += f"CAMERAS ASSIGNED: {u['c_total']} total\n"
+            for cam_name, cam_qty in u['cam_breakdown'].items():
+                if cam_qty > 0: report += f"  > {cam_name}: {cam_qty} units\n"
+            
             load_pct = (u['mb'] / u['m'][3]) * 100 if u['m'][3] > 0 else 0
             report += f"\nTHROUGHPUT ANALYTICS:\n  - Max Capacity:  {u['m'][3]:>10} Mbps\n  - Needed/Used:   {u['mb']:>10.2f} Mbps\n"
             report += f"  - Headroom:      {(u['m'][3] - u['mb']):>10.2f} Mbps ({load_pct:.1f}% Load)\n"
@@ -132,7 +133,9 @@ class CCTVApp:
             v = self.tree.item(i)['values']
             cams.append({"name": v[0], "qty": int(v[1]), "mbps": float(v[2]), "tb": float(v[3])/1024})
         if not cams: return
-        t_c, t_m, t_t = sum(c['qty'] for c in cams), sum(c['qty']*c['mbps'] for c in cams), sum(c['qty']*c['tb'] for c in cams)
+        t_c = sum(c['qty'] for c in cams)
+        t_m = sum(c['qty']*c['mbps'] for c in cams)
+        t_t = sum(c['qty']*c['tb'] for c in cams)
         
         best_cfg, best_total_cost = None, float('inf')
 
@@ -141,63 +144,81 @@ class CCTVApp:
             parity = 1 if mode == "RAID 5" else 2 if mode == "RAID 6" else 0
             search_list = RAID_ONLY if parity > 0 else (RAID_ONLY + JBOD_ONLY + HOLIS_DATA)
 
-            # 1. Try Single NVR
-            for m in search_list:
-                if t_c <= m[2] and t_m <= m[3]:
-                    hc, hd = get_best_hdd(t_t, m[4], parity, self.hdd_prices)
-                    if hd and (m[5] + hc) < best_total_cost:
-                        best_total_cost = (m[5] + hc)
-                        best_cfg = {"total": best_total_cost, "units": [{"m": m, "c": t_c, "mb": t_m, "tb": t_t, "h": hd, "mode": mode}]}
-
-            # 2. Try 2 NVR combinations with granular camera splitting
-            for combo in itertools.combinations_with_replacement(search_list, 2):
-                # Try every 10% split to find sweet spot for HDD cost
-                for split in range(10, 91, 10):
-                    r1 = split / 100.0
-                    r2 = 1.0 - r1
-                    
-                    # Calculate load for both units in combo
-                    c1, m1, t1 = round(t_c * r1), t_m * r1, t_t * r1
-                    c2, m2, t2 = t_c - c1, t_m * r2, t_t * r2
-                    
-                    # Hardware check
-                    if c1 <= combo[0][2] and m1 <= combo[0][3] and c2 <= combo[1][2] and m2 <= combo[1][3]:
-                        hc1, hd1 = get_best_hdd(t1, combo[0][4], parity, self.hdd_prices)
-                        hc2, hd2 = get_best_hdd(t2, combo[1][4], parity, self.hdd_prices)
+            # Check 1 Unit and 2 Unit combos
+            for num_units in range(1, 3):
+                for combo in itertools.combinations_with_replacement(search_list, num_units):
+                    # For 2-unit combos, check various split ratios
+                    splits = [1.0] if num_units == 1 else [x/10.0 for x in range(1, 10)]
+                    for r1 in splits:
+                        # Inventory Management to prevent "Ghost" cameras
+                        u_list = []
+                        running_cams = [dict(c) for c in cams] # Deep copy
                         
-                        if hd1 and hd2:
-                            total_cost = (combo[0][5] + hc1) + (combo[1][5] + hc2)
-                            if total_cost < best_total_cost:
-                                best_total_cost = total_cost
-                                best_cfg = {"total": total_cost, "units": [
-                                    {"m": combo[0], "c": c1, "mb": m1, "tb": t1, "h": hd1, "mode": mode},
-                                    {"m": combo[1], "c": c2, "mb": m2, "tb": t2, "h": hd2, "mode": mode}
-                                ]}
+                        # Process Unit 1
+                        u1_breakdown = {}
+                        u1_mb, u1_tb, u1_c = 0, 0, 0
+                        for c in running_cams:
+                            take = math.floor(c['qty'] * r1) if num_units > 1 else c['qty']
+                            u1_breakdown[c['name']] = take
+                            u1_mb += take * c['mbps']
+                            u1_tb += take * c['tb']
+                            u1_c += take
+                            c['qty'] -= take # Subtract from inventory
+                        
+                        hc1, hd1 = get_best_hdd(u1_tb, combo[0][4], parity, self.hdd_prices)
+                        if not (hd1 and u1_c <= combo[0][2] and u1_mb <= combo[0][3]): continue
+                        u_list.append({"m": combo[0], "c_total": u1_c, "cam_breakdown": u1_breakdown, "mb": u1_mb, "tb": u1_tb, "h": hd1, "mode": mode})
 
+                        # Process Unit 2 (The Remainder)
+                        if num_units == 2:
+                            u2_breakdown = {}
+                            u2_mb, u2_tb, u2_c = 0, 0, 0
+                            for c in running_cams:
+                                take = c['qty'] # Take everything left
+                                u2_breakdown[c['name']] = take
+                                u2_mb += take * c['mbps']
+                                u2_tb += take * c['tb']
+                                u2_c += take
+                            
+                            hc2, hd2 = get_best_hdd(u2_tb, combo[1][4], parity, self.hdd_prices)
+                            if not (hd2 and u2_c <= combo[1][2] and u2_mb <= combo[1][3]): continue
+                            u_list.append({"m": combo[1], "c_total": u2_c, "cam_breakdown": u2_breakdown, "mb": u2_mb, "tb": u2_tb, "h": hd2, "mode": mode})
+
+                        total_cost = sum((u['m'][5] + u['h']['cost']) for u in u_list)
+                        if total_cost < best_total_cost:
+                            best_total_cost = total_cost
+                            best_cfg = {"total": total_cost, "units": u_list}
         else:
-            # Manual remains based on user selection
+            # Manual Split Logic (Updated for inventory tracking)
             active = []
             for s in self.manual_slots:
                 if s['nvr'].get() != "None":
                     hw = [m for m in ALL_MODELS if m[1] == s['nvr'].get()][0]
                     p = 1 if s['mode'].get()=="RAID 5" else 2 if s['mode'].get()=="RAID 6" else 0
                     active.append({"hw": hw, "mode": s['mode'].get(), "parity": p})
+            
             if active:
-                total_cap_c = sum(u['hw'][2] for u in active)
+                num = len(active)
+                running_cams = [dict(c) for c in cams]
                 res_units, running_cost = [], 0
-                for u in active:
-                    ratio = u['hw'][2] / total_cap_c if total_cap_c > 0 else 1/len(active)
-                    u_c, u_m, u_t = round(t_c * ratio), t_m * ratio, t_t * ratio
-                    hc, hd = get_best_hdd(u_t, u['hw'][4], u['parity'], self.hdd_prices)
-                    if hd:
+                for i, u in enumerate(active):
+                    u_breakdown, u_mb, u_tb, u_c = {}, 0, 0, 0
+                    for c in running_cams:
+                        take = math.floor(c['qty']/num) if i < num-1 else c['qty']
+                        u_breakdown[c['name']] = take
+                        u_mb += take * c['mbps']; u_tb += take * c['tb']; u_c += take
+                        c['qty'] -= take
+                    
+                    hc, hd = get_best_hdd(u_tb, u['hw'][4], u['parity'], self.hdd_prices)
+                    if hd and u_c <= u['hw'][2] and u_mb <= u['hw'][3]:
                         running_cost += (u['hw'][5] + hc)
-                        res_units.append({"m": u['hw'], "c": u_c, "mb": u_m, "tb": u_t, "h": hd, "mode": u['mode']})
-                if len(res_units) == len(active): best_cfg = {"total": running_cost, "units": res_units}
+                        res_units.append({"m": u['hw'], "c_total": u_c, "cam_breakdown": u_breakdown, "mb": u_mb, "tb": u_tb, "h": hd, "mode": u['mode']})
+                if len(res_units) == num: best_cfg = {"total": running_cost, "units": res_units}
 
         txt = self.res_txt if auto else self.man_txt
         txt.delete("1.0", tk.END)
         if best_cfg:
-            txt.insert("1.0", self.generate_detailed_report(best_cfg, cams, t_c, "AUTO" if auto else "MANUAL"))
+            txt.insert("1.0", self.generate_detailed_report(best_cfg, "AUTO" if auto else "MANUAL"))
         else:
             txt.insert("1.0", "NO VALID CONFIG FOUND")
 

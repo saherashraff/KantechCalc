@@ -3,6 +3,7 @@ from tkinter import ttk, messagebox
 import math
 
 # --- DATA ---
+# Moved ADVER00N0N2J to JBOD list to ensure it never calculates with RAID parity
 RAID_DATA = [
     ["1U RAID", "ADVER00N0NP16G", 32, 50, 4, 3750.00],
     ["2U 64 Ch", "ADVER12R0N2H", 64, 300, 6, 10416.70],
@@ -14,7 +15,7 @@ RAID_DATA = [
 JBOD_ONLY_DATA = [
     ["Micro NVR", "ADVEM00N0NP8AH", 8, 80, 1, 1500.00],
     ["Desktop JBOD", "ADVED00N0N5H", 50, 200, 2, 2291.70],
-    ["2U 75 Ch", "ADVER00N0N2J", 75, 400, 4, 5312.50],
+    ["2U 75 Ch", "ADVER00N0N2J", 75, 400, 4, 5312.50], # Confirmed JBOD
 ]
 HOLIS_DATA = [
     ["Holis 8 Ch", "HRN-08013P", 8, 160, 1, 520.85],
@@ -40,7 +41,7 @@ def get_best_hdd(required_tb, slots, parity, price_dict):
 class CCTVApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("CCTV MASTER V22.8 - FORMATTED REPORT")
+        self.root.title("CCTV MASTER V22.9 - SELECTIVE EDITING")
         self.hdd_prices = DEFAULT_HDD_PRICES.copy()
         self.setup_ui()
 
@@ -53,27 +54,32 @@ class CCTVApp:
         self.nb.add(self.t4, text=" 3. Manual Split ")
         self.nb.add(self.t3, text=" 4. HDD Settings ")
 
-        # TAB 1: CAMERAS
+        # --- TAB 1: CAMERAS (WITH INDIVIDUAL DELETE) ---
         f_in = ttk.Frame(self.t1, padding=10); f_in.pack(fill="x")
         self.ents = {}
         for i, label in enumerate(["Name", "Qty", "Mbps", "GB"]):
             ttk.Label(f_in, text=label).grid(row=0, column=i*2)
             e = ttk.Entry(f_in, width=10); e.grid(row=0, column=i*2+1, padx=5); self.ents[label] = e
+        
         btn_f = ttk.Frame(self.t1); btn_f.pack(fill="x", padx=10)
         ttk.Button(btn_f, text="Add Camera", command=self.save_camera).pack(side="left", padx=5)
-        ttk.Button(btn_f, text="Clear List", command=self.clear_cams).pack(side="left")
+        ttk.Button(btn_f, text="Delete Selected", command=self.delete_selected).pack(side="left", padx=5)
+        ttk.Button(btn_f, text="Clear All", command=self.clear_cams).pack(side="left")
+        
         self.tree = ttk.Treeview(self.t1, columns=("N","Q","M","G"), show="headings", height=15)
         for c, h in zip(self.tree["columns"], ["Name","Qty","Mbps","GB"]): self.tree.heading(c, text=h)
         self.tree.pack(fill="both", expand=True, padx=10, pady=5)
+        # Bind double click to edit
+        self.tree.bind("<Double-1>", self.on_double_click)
 
-        # TAB 2: AUTO
+        # --- TAB 2: AUTO ---
         f_b = ttk.Frame(self.t2, padding=10); f_b.pack(fill="x")
         self.mode_var = tk.StringVar(value="RAID 5")
         ttk.Combobox(f_b, textvariable=self.mode_var, values=["RAID 5", "RAID 6", "JBOD"], state="readonly").pack(side="left")
         ttk.Button(f_b, text="RUN AUTO", command=lambda: self.run_logic(True)).pack(side="left", padx=10)
         self.res_txt = tk.Text(self.t2, font=("Consolas", 10)); self.res_txt.pack(fill="both", expand=True, padx=5)
 
-        # TAB 3: MANUAL
+        # --- TAB 3: MANUAL ---
         f_m = ttk.Frame(self.t4, padding=10); f_m.pack(fill="x")
         self.manual_slots = []
         for i, char in enumerate(["A", "B", "C", "D"]):
@@ -85,7 +91,7 @@ class CCTVApp:
         ttk.Button(f_m, text="CALCULATE MANUAL", command=lambda: self.run_logic(False)).grid(row=5, column=1, pady=10)
         self.man_txt = tk.Text(self.t4, font=("Consolas", 10), bg="#f4f4f4"); self.man_txt.pack(fill="both", expand=True, padx=5)
 
-        # TAB 4: HDD
+        # --- TAB 4: HDD ---
         f_hdd = ttk.Frame(self.t3, padding=20); f_hdd.pack(fill="both", expand=True)
         self.hdd_entries = {}
         for i, cap in enumerate(sorted(self.hdd_prices.keys())):
@@ -102,10 +108,26 @@ class CCTVApp:
 
     def save_camera(self):
         v = [self.ents[k].get() for k in ["Name", "Qty", "Mbps", "GB"]]
-        if all(v): self.tree.insert("", "end", values=v)
+        if all(v): 
+            self.tree.insert("", "end", values=v)
+            for k in self.ents: self.ents[k].delete(0, tk.END) # Clear inputs after adding
+
+    def delete_selected(self):
+        selected_items = self.tree.selection()
+        for item in selected_items:
+            self.tree.delete(item)
+
+    def on_double_click(self, event):
+        item = self.tree.selection()[0]
+        values = self.tree.item(item, "values")
+        for i, k in enumerate(["Name", "Qty", "Mbps", "GB"]):
+            self.ents[k].delete(0, tk.END)
+            self.ents[k].insert(0, values[i])
+        self.tree.delete(item)
 
     def clear_cams(self):
-        for i in self.tree.get_children(): self.tree.delete(i)
+        if messagebox.askyesno("Confirm", "Delete all cameras?"):
+            for i in self.tree.get_children(): self.tree.delete(i)
 
     def generate_detailed_report(self, cfg, cams, t_c, t_m, t_t, title):
         report = f"--- {title} SOLUTION REPORT ---\n"
@@ -116,22 +138,17 @@ class CCTVApp:
             report += f"UNIT #{i+1}: {u['m'][0]} [{u['m'][1]}]\n"
             report += f"CONFIGURATION MODE: {u['mode']}\n"
             report += "-"*50 + "\n"
-            
-            # Camera assignments
             report += f"CAMERAS ASSIGNED: {u['c']} total\n"
             for c in cams:
                 share = round(c['qty'] * (u['c'] / t_c))
-                if share > 0:
-                    report += f"  > {c['name']}: {share} units\n"
+                if share > 0: report += f"  > {c['name']}: {share} units\n"
             
-            # Throughput Section
             load_pct = (u['mb'] / u['m'][3]) * 100
             report += f"\nTHROUGHPUT ANALYTICS:\n"
             report += f"  - Max Capacity:  {u['m'][3]:>10} Mbps\n"
             report += f"  - Needed/Used:   {u['mb']:>10.2f} Mbps\n"
             report += f"  - Headroom:      {(u['m'][3] - u['mb']):>10.2f} Mbps ({load_pct:.1f}% Load)\n"
 
-            # Storage Section
             report += f"\nSTORAGE ANALYTICS:\n"
             report += f"  - Physical Drive: {u['h']['qty']}x {u['h']['cap']}TB\n"
             report += f"  - Max Slots:      {u['m'][4]:>10} slots available\n"
@@ -139,7 +156,6 @@ class CCTVApp:
             report += f"  - Usable Storage: {u['h']['total_tb']:>10.2f} TB\n"
             report += f"  - Storage Margin: {(u['h']['total_tb'] - u['tb']):>10.2f} TB Over-provisioned\n"
             report += "\n" + "="*75 + "\n\n"
-            
         return report
 
     def run_logic(self, auto):
@@ -154,20 +170,25 @@ class CCTVApp:
 
         if auto:
             mode = self.mode_var.get()
-            parity = 1 if mode == "RAID 5" else 2 if mode == "RAID 6" else 0
             for m in ALL_MODELS:
+                # If JBOD list is used, force parity to 0 regardless of mode selection
+                is_jbod_only = any(m[1] == j[1] for j in JBOD_ONLY_DATA)
+                parity = 0 if (is_jbod_only or mode == "JBOD") else (1 if mode == "RAID 5" else 2)
+                
                 if t_c <= m[2] and t_m <= m[3]:
                     hc, hd = get_best_hdd(t_t, m[4], parity, self.hdd_prices)
                     if hd and (m[5] + hc) < best_cost:
                         best_cost = m[5] + hc
-                        best_cfg = {"total": best_cost, "units": [{"m": m, "c": t_c, "mb": t_m, "tb": t_t, "h": hd, "mode": mode}]}
+                        best_cfg = {"total": best_cost, "units": [{"m": m, "c": t_c, "mb": t_m, "tb": t_t, "h": hd, "mode": "JBOD" if is_jbod_only else mode}]}
         else:
             active = []
             for s in self.manual_slots:
                 if s['nvr'].get() != "None":
                     hw = [m for m in ALL_MODELS if m[1] == s['nvr'].get()][0]
-                    p = 1 if s['mode'].get()=="RAID 5" else 2 if s['mode'].get()=="RAID 6" else 0
-                    active.append({"hw": hw, "mode": s['mode'].get(), "parity": p})
+                    is_jbod_only = any(hw[1] == j[1] for j in JBOD_ONLY_DATA)
+                    p = 0 if (is_jbod_only or s['mode'].get()=="JBOD") else (1 if s['mode'].get()=="RAID 5" else 2)
+                    active.append({"hw": hw, "mode": "JBOD" if is_jbod_only else s['mode'].get(), "parity": p})
+            
             if not active: return messagebox.showerror("Error", "Select NVR A")
 
             for r in range(1, 101):

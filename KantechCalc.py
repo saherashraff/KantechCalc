@@ -1,46 +1,43 @@
 #!/usr/bin/env python3
 """
-NVR & Storage Calculator — Tkinter GUI
-Run: python nvr_calculator.py
+CCTV Master Calculator
+Rewrite of KantechCalc with improved GUI.
+Maintains all original functionality: camera entry, NVR management,
+HDD pricing, auto/manual calculation, report export.
 """
-import math, re, time, threading
 import tkinter as tk
-from tkinter import ttk, messagebox, font as tkfont
+from tkinter import ttk, messagebox, filedialog
+import math, itertools, json, os
+from datetime import datetime
 
-# ─────────────────────────── Data ──────────────────────────────────────────
+# ─────────────────────────── Persistence ───────────────────────────────────
+DATA_FILE = "system_data.json"
 
-NVR_DATA = {
-    "American Dynamics": [
-        {"name": "Micro",                    "part": "ADVEM00N0NP8AH",  "cameras": 8,   "throughput": 80,   "raid": "JBOD", "price": 1500.0,  "max_drives": 1},
-        {"name": "1UJ",                       "part": "ADVER00N0NP16G",  "cameras": 32,  "throughput": 100,  "raid": "JBOD", "price": 3750.0,  "max_drives": 4},
-        {"name": "1UR",                       "part": "ADVER00N0NP16G",  "cameras": 32,  "throughput": 50,  "raid": "RAID", "price": 3750.0,  "max_drives": 4},
-	{"name": "Compact Desktop",          "part": "ADVED00N0N5G",    "cameras": 32,  "throughput": 100,  "raid": "JBOD", "price": 2500.0,  "max_drives": 1},
-        {"name": "Desktop",                  "part": "ADVED00N0N5H",    "cameras": 50,  "throughput": 200,  "raid": "JBOD", "price": 2291.7,  "max_drives": 2},
-        {"name": "2U 64 Channels",           "part": "ADVER12R0N2H",    "cameras": 64,  "throughput": 300,  "raid": "RAID", "price": 10416.7, "max_drives": 6},
-        {"name": "2U 75 Channels",           "part": "ADVER00N0N2J",    "cameras": 75,  "throughput": 400,  "raid": "JBOD", "price": 5312.5,  "max_drives": 4},
-        {"name": "2U 100 Channels",          "part": "ADVER00RN2J",     "cameras": 100, "throughput": 600,  "raid": "RAID", "price": 11666.7, "max_drives": 8},
-        {"name": "2U High Cap 128 Channels", "part": "ADVER72R5N2H",    "cameras": 128, "throughput": 600,  "raid": "RAID", "price": 25000.0, "max_drives": 12},
-        {"name": "2U High Cap 175 Channels", "part": "ADVER00RN2K",     "cameras": 175, "throughput": 1000, "raid": "RAID", "price": 13854.2, "max_drives": 12},
-        {"name": "2U Rack Mount",            "part": "ADVER02RDK",      "cameras": 200, "throughput": 1500, "raid": "RAID", "price": 12812.5, "max_drives": 12},
-    ],
-    "Holis": [
-        {"name": "Holis 8 Channels",  "part": "HRN-08013P", "cameras": 8,  "throughput": 0, "raid": "JBOD", "price": 520.85,  "max_drives": 1},
-        {"name": "Holis 16 Channels", "part": "HRN-16023P", "cameras": 16, "throughput": 0, "raid": "JBOD", "price": 770.85,  "max_drives": 1},
-    ],
+DEFAULT_HDD_PRICES = {
+    1: 87.0, 2: 131.0, 3: 145.0, 4: 239.0,
+    6: 375.0, 8: 427.0, 10: 500.0, 12: 614.0,
+    14: 1114.0, 18: 1291.0, 22: 1226.0, 24: 1568.0, 26: 2600.0,
 }
 
-DISK_FALLBACK = {
-    1: 63.16,  2: 94.72,   3: 105.26,  4: 168.42,
-    6: 215.79, 8: 306.42,  10: 355.54, 12: 442.11,
-    14: 617.98, 18: 720.55, 20: 750.0,  22: 685.29,
-    24: 863.49, 26: 822.89,
-}
+DEFAULT_NVR_DATA = [
+    {"Name": "1U RAID",        "SKU": "ADVER00N0NP16G", "CH": 32,  "MB": 50,   "Slots": 4,  "Price": 3750.0,  "mode": "RAID"},
+    {"Name": "2U 64 Ch",       "SKU": "ADVER12R0N2H",   "CH": 64,  "MB": 300,  "Slots": 6,  "Price": 10416.7, "mode": "RAID"},
+    {"Name": "2U 100 Ch",      "SKU": "ADVER00RN2J",    "CH": 100, "MB": 600,  "Slots": 8,  "Price": 11666.7, "mode": "RAID"},
+    {"Name": "2U 128 Ch",      "SKU": "ADVER72R5N2H",   "CH": 128, "MB": 600,  "Slots": 12, "Price": 25000.0, "mode": "RAID"},
+    {"Name": "2U Rack 175 Ch", "SKU": "ADVER02RDK",     "CH": 175, "MB": 1000, "Slots": 12, "Price": 13854.2, "mode": "RAID"},
+    {"Name": "2U Rack 200 Ch", "SKU": "ADVER02RDK",     "CH": 200, "MB": 1500, "Slots": 12, "Price": 12812.5, "mode": "RAID"},
+    {"Name": "Micro NVR",      "SKU": "ADVEM00N0NP8AH", "CH": 8,   "MB": 80,   "Slots": 1,  "Price": 1500.0,  "mode": "JBOD"},
+    {"Name": "Desktop JBOD",   "SKU": "ADVED00N0N5H",   "CH": 50,  "MB": 200,  "Slots": 2,  "Price": 2291.7,  "mode": "JBOD"},
+    {"Name": "2U 75 Ch",       "SKU": "ADVER00N0N2J",   "CH": 75,  "MB": 400,  "Slots": 4,  "Price": 5312.5,  "mode": "JBOD"},
+    {"Name": "Holis 8 Ch",     "SKU": "HRN-08013P",     "CH": 8,   "MB": 160,  "Slots": 1,  "Price": 520.85,  "mode": "JBOD"},
+    {"Name": "Holis 16 Ch",    "SKU": "HRN-16023P",     "CH": 16,  "MB": 320,  "Slots": 2,  "Price": 770.85,  "mode": "JBOD"},
+]
 
-# ─────────────────────────── Colors ────────────────────────────────────────
-
+# ─────────────────────────── Colors & Fonts ────────────────────────────────
 BG       = "#0f1520"
 SURFACE  = "#151d2e"
 SURFACE2 = "#1a2540"
+SURFACE3 = "#1f2d4a"
 BORDER   = "#253046"
 ACCENT   = "#00d4ff"
 ACCENT_D = "#0099bb"
@@ -52,669 +49,682 @@ TEXT2    = "#7a90b0"
 TEXT3    = "#3d5070"
 WHITE    = "#ffffff"
 
-# ─────────────────────────── Calculation Logic ─────────────────────────────
+FONT_H1   = ("Segoe UI", 16, "bold")
+FONT_H2   = ("Segoe UI", 11, "bold")
+FONT_H3   = ("Segoe UI", 10, "bold")
+FONT_BODY = ("Segoe UI", 9)
+FONT_MONO = ("Consolas", 9)
+FONT_BTN  = ("Segoe UI", 9, "bold")
+FONT_LRGE = ("Segoe UI", 11, "bold")
 
-def parity_drives(raid_type):
-    return {"RAID5": 1, "RAID6": 2}.get(raid_type, 0)
-
-def min_drives_for_raid(raid_type):
-    return {"RAID5": 3, "RAID6": 4}.get(raid_type, 1)
-
-def optimize_disk_config(storage_needed_tb, max_drives, raid_type, disk_catalog):
-    if not disk_catalog:
-        return None
-    best = None
-    if raid_type == "JBOD":
-        for size_tb, price in disk_catalog.items():
-            n = max(1, math.ceil(storage_needed_tb / size_tb))
-            if n > max_drives:
-                continue
-            cost = n * price
-            if best is None or cost < best["cost"]:
-                best = {"drives": n, "drive_size_tb": size_tb,
-                        "usable_tb": n * size_tb, "cost": cost,
-                        "config": f"{n} x {size_tb} TB  (JBOD)",
-                        "price_per_disk": price, "parity": 0}
-    else:
-        min_d = min_drives_for_raid(raid_type)
-        par   = parity_drives(raid_type)
-        for size_tb, price in disk_catalog.items():
-            for total_d in range(min_d, max_drives + 1):
-                data_d = total_d - par
-                if data_d < 1:
-                    continue
-                usable = data_d * size_tb
-                if usable < storage_needed_tb:
-                    continue
-                cost = total_d * price
-                if best is None or cost < best["cost"]:
-                    best = {"drives": total_d, "drive_size_tb": size_tb,
-                            "usable_tb": usable, "cost": cost,
-                            "config": f"{total_d} x {size_tb} TB  ({data_d} data + {par} parity, {raid_type})",
-                            "price_per_disk": price, "parity": par}
-    return best
-
-def calculate(camera_groups, retention_days, raid_pref, brand_pref, disk_catalog, raid_type_pref):
-    total_cameras    = sum(g["count"] for g in camera_groups)
-    total_throughput = sum(g["count"] * g["throughput_mbps"] for g in camera_groups)
-    total_storage_tb = 0.0
-    for g in camera_groups:
-        gb_per_day        = (g["throughput_mbps"] / 8) * 86400 / 1024
-        total_storage_tb += (gb_per_day * retention_days * g["count"]) / 1024
-
-    results = []
-    for brand, nvrs in NVR_DATA.items():
-        if brand_pref != "any" and brand.lower() != brand_pref.lower():
+# ─────────────────────────── Core Logic ────────────────────────────────────
+def get_best_hdd(required_tb, slots, parity, price_dict):
+    best_cost, best_cfg = float('inf'), None
+    for cap in sorted(price_dict.keys()):
+        price = price_dict[cap]
+        min_d = max(parity + 1, 1)
+        data_req = math.ceil(required_tb / cap)
+        total_drives = data_req + parity
+        if total_drives > slots:
             continue
-        for nvr in nvrs:
-            nvr_raid = nvr["raid"]
-            if raid_pref != "any" and nvr_raid.lower() != raid_pref.lower():
-                continue
-            effective_raid = (raid_type_pref if raid_type_pref in ("RAID5","RAID6") else "RAID5") \
-                             if nvr_raid == "RAID" else "JBOD"
+        total_drives = max(total_drives, min_d)
+        cost = total_drives * price
+        if cost < best_cost:
+            best_cost = cost
+            best_cfg  = {"cap": cap, "qty": total_drives, "data": data_req, "cost": cost}
+    return best_cfg
 
-            nvrs_cam = math.ceil(total_cameras / nvr["cameras"])
-            nvrs_tp  = math.ceil(total_throughput / nvr["throughput"]) if nvr["throughput"] > 0 else 1
-            nvrs_n   = max(nvrs_cam, nvrs_tp)
-
-            disk_cfg = optimize_disk_config(total_storage_tb / nvrs_n, nvr["max_drives"], effective_raid, disk_catalog)
-            if disk_cfg is None:
-                continue
-
-            nvr_cost  = nvr["price"] * nvrs_n
-            disk_cost = disk_cfg["cost"] * nvrs_n
-            results.append({
-                "brand": brand, "name": nvr["name"], "part": nvr["part"],
-                "effective_raid": effective_raid, "nvrs": nvrs_n,
-                "cams_per_nvr": math.ceil(total_cameras / nvrs_n),
-                "tp_required": round(total_throughput, 1),
-                "tp_available": nvr["throughput"] * nvrs_n if nvr["throughput"] > 0 else None,
-                "storage_tb": round(total_storage_tb, 2),
-                "disk_cfg": disk_cfg,
-                "total_drives": disk_cfg["drives"] * nvrs_n,
-                "nvr_cost": round(nvr_cost, 2),
-                "disk_cost": round(disk_cost, 2),
-                "grand_total": round(nvr_cost + disk_cost, 2),
-                "nvr_unit_price": nvr["price"],
-            })
-
-    results.sort(key=lambda x: x["grand_total"])
-    return results, round(total_storage_tb, 2), total_cameras, round(total_throughput, 1)
-
-def fetch_amazon_prices(sizes_tb, callback):
-    """Runs in a background thread. Calls callback(prices_dict, errors_list)."""
-    try:
-        import requests
-        from bs4 import BeautifulSoup
-    except ImportError:
-        callback({}, ["requests / beautifulsoup4 not installed.\nRun:  pip install requests beautifulsoup4"])
-        return
-
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
-        "Accept-Language": "en-US,en;q=0.9,ar;q=0.8",
-    }
-    prices, errors = {}, []
-    session = requests.Session()
-    session.headers.update(headers)
-
-    for size_tb in sizes_tb:
-        url = f"https://www.amazon.eg/s?k={size_tb}TB+internal+hard+disk+HDD&i=electronics"
-        try:
-            resp  = session.get(url, timeout=12)
-            soup  = BeautifulSoup(resp.text, "html.parser")
-            items = soup.select('[data-component-type="s-search-result"]')
-            found = False
-            for item in items:
-                te = item.select_one("h2 a span")
-                pe = item.select_one(".a-price .a-offscreen")
-                if not te or not pe:
-                    continue
-                raw = pe.get_text(strip=True)
-                num = re.sub(r"[^\d.,]", "", raw.replace("٬","").replace("٫",".")).replace(",","")
-                try:
-                    prices[size_tb] = float(num)
-                    found = True
-                    break
-                except ValueError:
-                    continue
-            if not found:
-                errors.append(f"{size_tb} TB: not found")
-            time.sleep(0.6)
-        except Exception as e:
-            errors.append(f"{size_tb} TB: {e}")
-
-    callback(prices, errors)
-
-# ─────────────────────────── GUI Helpers ───────────────────────────────────
-
-def styled_frame(parent, bg=SURFACE, **kw):
+# ─────────────────────────── Widget Helpers ────────────────────────────────
+def mk_frame(parent, bg=SURFACE, **kw):
     return tk.Frame(parent, bg=bg, **kw)
 
-def label(parent, text, size=10, bold=False, color=TEXT, bg=SURFACE, anchor="w", **kw):
-    weight = "bold" if bold else "normal"
-    return tk.Label(parent, text=text, bg=bg, fg=color,
-                    font=("Segoe UI", size, weight), anchor=anchor, **kw)
+def mk_label(parent, text, font=FONT_BODY, fg=TEXT2, bg=SURFACE, anchor="w", **kw):
+    return tk.Label(parent, text=text, font=font, fg=fg, bg=bg, anchor=anchor, **kw)
 
-def entry(parent, textvariable=None, width=14, **kw):
+def mk_entry(parent, textvariable=None, width=12, font=FONT_MONO, **kw):
     e = tk.Entry(parent, textvariable=textvariable, width=width,
                  bg=SURFACE2, fg=TEXT, insertbackground=ACCENT,
-                 relief="flat", bd=0, font=("Consolas", 10), **kw)
-    # Draw border via highlight
-    e.config(highlightthickness=1, highlightbackground=BORDER, highlightcolor=ACCENT)
+                 relief="flat", bd=0, font=font,
+                 highlightthickness=1, highlightbackground=BORDER,
+                 highlightcolor=ACCENT, **kw)
     return e
 
-def separator(parent, bg=BORDER):
+def mk_btn(parent, text, command, style="normal", **kw):
+    colors = {
+        "primary": (ACCENT,   "#000000", ACCENT_D),
+        "danger":  (SURFACE2, RED,       SURFACE3),
+        "ghost":   (SURFACE2, TEXT2,     SURFACE3),
+        "success": (GREEN,    "#000000", "#18a87f"),
+        "normal":  (SURFACE3, TEXT,      BORDER),
+    }
+    bg, fg, abg = colors.get(style, colors["normal"])
+    return tk.Button(parent, text=text, command=command,
+                     bg=bg, fg=fg, activebackground=abg, activeforeground=fg,
+                     font=FONT_BTN, relief="flat", bd=0,
+                     cursor="hand2", padx=10, pady=5, **kw)
+
+def sep(parent, bg=BORDER, vertical=False):
+    if vertical:
+        return tk.Frame(parent, bg=bg, width=1)
     return tk.Frame(parent, bg=bg, height=1)
 
-# ─────────────────────────── Camera Group Row ──────────────────────────────
+# ─────────────────────────── Application ───────────────────────────────────
+class CCTVApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("CCTV Master Calculator")
+        self.root.configure(bg=BG)
+        self.root.geometry("1200x820")
+        self.root.minsize(1000, 700)
 
-class CameraGroupRow:
-    def __init__(self, parent, idx, on_remove):
-        self.idx = idx
-        self.frame = styled_frame(parent, bg=SURFACE2)
-        self.frame.pack(fill="x", pady=3)
+        self.last_report = None
+        self.hdd_ents    = {}
+        self.nvr_price_entries = []
 
-        inner = styled_frame(self.frame, bg=SURFACE2)
-        inner.pack(fill="x", padx=10, pady=8)
+        self.load_all_data()
+        self.setup_ui()
+        self._apply_ttk_styles()
 
-        label(inner, f"Type {idx}", size=9, color=ACCENT, bg=SURFACE2).grid(row=0, column=0, sticky="w", padx=(0,12))
+    # ── Data persistence ──────────────────────────────────────────────────
+    def load_all_data(self):
+        if os.path.exists(DATA_FILE):
+            try:
+                with open(DATA_FILE, "r") as f:
+                    data = json.load(f)
+                self.hdd_prices = {int(k): float(v) for k, v in data.get("hdd", {}).items()}
+                self.nvr_list   = [dict(x) for x in data.get("nvr", [])]
+                return
+            except Exception:
+                pass
+        self.hdd_prices = dict(DEFAULT_HDD_PRICES)
+        self.nvr_list   = [dict(n) for n in DEFAULT_NVR_DATA]
 
-        label(inner, "Name", size=9, color=TEXT2, bg=SURFACE2).grid(row=0, column=1, sticky="w")
-        self.name_var = tk.StringVar(value=f"Type {idx}")
-        entry(inner, textvariable=self.name_var, width=14).grid(row=0, column=2, padx=(4,12))
+    def save_all_data(self):
+        with open(DATA_FILE, "w") as f:
+            json.dump({"hdd": self.hdd_prices, "nvr": self.nvr_list}, f, indent=2)
 
-        label(inner, "Cameras", size=9, color=TEXT2, bg=SURFACE2).grid(row=0, column=3, sticky="w")
-        self.count_var = tk.StringVar(value="64")
-        entry(inner, textvariable=self.count_var, width=7).grid(row=0, column=4, padx=(4,12))
-
-        label(inner, "Throughput (Mbps)", size=9, color=TEXT2, bg=SURFACE2).grid(row=0, column=5, sticky="w")
-        self.tp_var = tk.StringVar(value="3.12")
-        entry(inner, textvariable=self.tp_var, width=8).grid(row=0, column=6, padx=(4,12))
-
-        if idx > 1:
-            btn = tk.Button(inner, text="Remove", bg=SURFACE, fg=RED,
-                            font=("Segoe UI", 9), relief="flat", bd=0,
-                            activebackground=SURFACE, activeforeground=RED,
-                            cursor="hand2", command=lambda: on_remove(self))
-            btn.grid(row=0, column=7, padx=(4,0))
-
-    def get_data(self):
-        return {
-            "name":           self.name_var.get().strip() or f"Type {self.idx}",
-            "count":          int(self.count_var.get()),
-            "throughput_mbps": float(self.tp_var.get()),
-        }
-
-# ─────────────────────────── Main Application ──────────────────────────────
-
-class NVRApp(tk.Tk):
-    def __init__(self):
-        super().__init__()
-        self.title("NVR & Storage Calculator")
-        self.configure(bg=BG)
-        self.geometry("1100x780")
-        self.minsize(900, 600)
-
-        self.disk_catalog = dict(DISK_FALLBACK)
-        self.cam_rows     = []
-        self.cam_row_idx  = 0
-
-        self._apply_styles()
-        self._build_ui()
-
-    # ── ttk styles ────────────────────────────────────────────────────────
-    def _apply_styles(self):
-        s = ttk.Style(self)
+    # ── TTK styles ────────────────────────────────────────────────────────
+    def _apply_ttk_styles(self):
+        s = ttk.Style()
         s.theme_use("clam")
-
-        s.configure("Treeview",
-            background=SURFACE, foreground=TEXT,
-            fieldbackground=SURFACE, rowheight=26,
-            font=("Consolas", 9), borderwidth=0)
-        s.configure("Treeview.Heading",
-            background=SURFACE2, foreground=ACCENT,
-            font=("Segoe UI", 9, "bold"), relief="flat", borderwidth=0)
-        s.map("Treeview",
-            background=[("selected", ACCENT_D)],
-            foreground=[("selected", WHITE)])
-        s.map("Treeview.Heading", relief=[("active","flat")])
-
-        s.configure("Vertical.TScrollbar",
-            background=BORDER, troughcolor=SURFACE, arrowcolor=TEXT2,
-            borderwidth=0, relief="flat")
-        s.configure("Horizontal.TScrollbar",
-            background=BORDER, troughcolor=SURFACE, arrowcolor=TEXT2,
-            borderwidth=0, relief="flat")
-
-        s.configure("TCombobox",
-            fieldbackground=SURFACE2, background=SURFACE2,
-            foreground=TEXT, bordercolor=BORDER,
-            arrowcolor=ACCENT, selectbackground=SURFACE2,
-            selectforeground=TEXT, insertcolor=ACCENT)
-        s.map("TCombobox",
-            fieldbackground=[("readonly", SURFACE2)],
-            foreground=[("readonly", TEXT)])
-
-    # ── Build layout ──────────────────────────────────────────────────────
-    def _build_ui(self):
-        # ── Header ──────────────────────────────────────────────────────
-        hdr = styled_frame(self, bg=BG)
-        hdr.pack(fill="x", padx=24, pady=(20,0))
-
-        label(hdr, "NVR & Storage Calculator", size=18, bold=True,
-              color=WHITE, bg=BG).pack(side="left")
-        label(hdr, "  American Dynamics  ·  Holis", size=10,
-              color=TEXT3, bg=BG).pack(side="left", pady=(6,0))
-
-        separator(self).pack(fill="x", padx=24, pady=12)
-
-        # ── Two-column body ──────────────────────────────────────────────
-        body = styled_frame(self, bg=BG)
-        body.pack(fill="both", expand=True, padx=24, pady=(0,16))
-        body.columnconfigure(0, weight=0, minsize=380)
-        body.columnconfigure(1, weight=1)
-        body.rowconfigure(0, weight=1)
-
-        left  = styled_frame(body, bg=BG)
-        left.grid(row=0, column=0, sticky="nsew", padx=(0,16))
-
-        right = styled_frame(body, bg=BG)
-        right.grid(row=0, column=1, sticky="nsew")
-
-        self._build_left(left)
-        self._build_right(right)
-
-    # ── Left panel ────────────────────────────────────────────────────────
-    def _build_left(self, parent):
-        parent.columnconfigure(0, weight=1)
-
-        # ─ Camera Types ─────────────────────────────────────────────────
-        self._section_label(parent, "1  Camera Configuration")
-
-        cam_outer = styled_frame(parent, bg=SURFACE)
-        cam_outer.pack(fill="x", pady=(0,14))
-
-        self.cam_container = styled_frame(cam_outer, bg=SURFACE)
-        self.cam_container.pack(fill="x", padx=2, pady=2)
-
-        self._add_cam_row()   # start with one row
-
-        btn_add = tk.Button(cam_outer, text="+ Add Camera Type",
-                            bg=SURFACE2, fg=ACCENT,
-                            font=("Segoe UI", 9), relief="flat", bd=0,
-                            activebackground=BORDER, activeforeground=ACCENT,
-                            cursor="hand2", pady=6, command=self._add_cam_row)
-        btn_add.pack(fill="x", padx=2, pady=(0,2))
-
-        # ─ Storage settings ──────────────────────────────────────────────
-        self._section_label(parent, "2  Storage & RAID Settings")
-
-        s_frame = styled_frame(parent, bg=SURFACE)
-        s_frame.pack(fill="x", pady=(0,14))
-        s_inner = styled_frame(s_frame, bg=SURFACE)
-        s_inner.pack(fill="x", padx=14, pady=12)
-
-        # Retention
-        row1 = styled_frame(s_inner, bg=SURFACE)
-        row1.pack(fill="x", pady=4)
-        label(row1, "Retention Period (days)", size=9, color=TEXT2, bg=SURFACE, width=22).pack(side="left")
-        self.retention_var = tk.StringVar(value="30")
-        entry(row1, textvariable=self.retention_var, width=8).pack(side="left", padx=(8,0))
-
-        # Brand
-        row2 = styled_frame(s_inner, bg=SURFACE)
-        row2.pack(fill="x", pady=4)
-        label(row2, "Brand Preference", size=9, color=TEXT2, bg=SURFACE, width=22).pack(side="left")
-        self.brand_var = tk.StringVar(value="Any")
-        cb_brand = ttk.Combobox(row2, textvariable=self.brand_var, width=20,
-                                state="readonly",
-                                values=["Any", "American Dynamics", "Holis"])
-        cb_brand.pack(side="left", padx=(8,0))
-
-        # NVR Mode
-        row3 = styled_frame(s_inner, bg=SURFACE)
-        row3.pack(fill="x", pady=4)
-        label(row3, "NVR Mode", size=9, color=TEXT2, bg=SURFACE, width=22).pack(side="left")
-        self.raid_pref_var = tk.StringVar(value="Any")
-        for val in ("Any", "RAID", "JBOD"):
-            rb = tk.Radiobutton(row3, text=val, variable=self.raid_pref_var,
-                                value=val, bg=SURFACE, fg=TEXT2,
-                                selectcolor=SURFACE2, activebackground=SURFACE,
-                                activeforeground=TEXT,
-                                font=("Segoe UI", 9),
-                                command=self._on_raid_pref_change)
-            rb.pack(side="left", padx=(8,0))
-
-        # RAID Level
-        self.raid_level_frame = styled_frame(s_inner, bg=SURFACE)
-        self.raid_level_frame.pack(fill="x", pady=4)
-        label(self.raid_level_frame, "RAID Level", size=9, color=TEXT2, bg=SURFACE, width=22).pack(side="left")
-        self.raid_type_var = tk.StringVar(value="RAID5")
-        for val, desc in (("RAID5", "RAID 5  (1 parity)"), ("RAID6", "RAID 6  (2 parity)")):
-            rb = tk.Radiobutton(self.raid_level_frame, text=desc,
-                                variable=self.raid_type_var, value=val,
-                                bg=SURFACE, fg=TEXT2, selectcolor=SURFACE2,
-                                activebackground=SURFACE, activeforeground=TEXT,
-                                font=("Segoe UI", 9))
-            rb.pack(side="left", padx=(8,0))
-
-        # ─ Disk Pricing ──────────────────────────────────────────────────
-        self._section_label(parent, "3  Disk Pricing  (EGP)")
-
-        p_frame = styled_frame(parent, bg=SURFACE)
-        p_frame.pack(fill="x", pady=(0,14))
-        p_inner = styled_frame(p_frame, bg=SURFACE)
-        p_inner.pack(fill="x", padx=14, pady=10)
-
-        btn_fetch = tk.Button(p_inner, text="Fetch Live Prices from amazon.eg",
-                              bg=ACCENT_D, fg=WHITE,
-                              font=("Segoe UI", 9, "bold"), relief="flat", bd=0,
-                              activebackground=ACCENT, activeforeground=WHITE,
-                              cursor="hand2", pady=6,
-                              command=self._fetch_amazon)
-        btn_fetch.pack(fill="x", pady=(0,6))
-
-        self.price_status = label(p_inner, "Using built-in fallback prices", size=9,
-                                  color=TEXT2, bg=SURFACE)
-        self.price_status.pack(anchor="w", pady=(0,8))
-
-        # Grid of price fields
-        pg = styled_frame(p_inner, bg=SURFACE)
-        pg.pack(fill="x")
-        self.price_vars = {}
-        sizes = sorted(DISK_FALLBACK.keys())
-        for i, s in enumerate(sizes):
-            col, row = (i % 4) * 2, i // 4
-            label(pg, f"{s} TB", size=9, color=TEXT2, bg=SURFACE, width=5).grid(
-                row=row, column=col, sticky="w", pady=3)
-            var = tk.StringVar(value=str(DISK_FALLBACK[s]))
-            self.price_vars[s] = var
-            entry(pg, textvariable=var, width=8).grid(
-                row=row, column=col+1, padx=(2,14), pady=3)
-
-        # ─ Calculate button ───────────────────────────────────────────────
-        separator(parent).pack(fill="x", pady=10)
-
-        self.calc_btn = tk.Button(parent, text="Calculate",
-                                  bg=ACCENT, fg="#000000",
-                                  font=("Segoe UI", 12, "bold"), relief="flat", bd=0,
-                                  activebackground=ACCENT_D, activeforeground=WHITE,
-                                  cursor="hand2", pady=10,
-                                  command=self._run_calculation)
-        self.calc_btn.pack(fill="x")
-
-        self.status_label = label(parent, "", size=9, color=TEXT2, bg=BG, anchor="center")
-        self.status_label.pack(pady=(6,0))
-
-    # ── Right panel ───────────────────────────────────────────────────────
-    def _build_right(self, parent):
-        parent.columnconfigure(0, weight=1)
-        parent.rowconfigure(1, weight=1)
-
-        # Summary row
-        self.summary_frame = styled_frame(parent, bg=SURFACE)
-        self.summary_frame.pack(fill="x", pady=(0,12))
-        self._render_summary(None)
-
-        # Results label
-        res_hdr = styled_frame(parent, bg=BG)
-        res_hdr.pack(fill="x", pady=(0,6))
-        label(res_hdr, "Results", size=12, bold=True, color=WHITE, bg=BG).pack(side="left")
-        self.results_count_lbl = label(res_hdr, "", size=9, color=TEXT2, bg=BG)
-        self.results_count_lbl.pack(side="left", padx=12, pady=2)
-
+        # Notebook
+        s.configure("TNotebook", background=BG, borderwidth=0, tabmargins=0)
+        s.configure("TNotebook.Tab",
+                    background=SURFACE, foreground=TEXT2,
+                    font=FONT_H3, padding=(16, 8),
+                    borderwidth=0, focuscolor=BG)
+        s.map("TNotebook.Tab",
+              background=[("selected", SURFACE2), ("active", SURFACE3)],
+              foreground=[("selected", ACCENT),   ("active", TEXT)])
         # Treeview
-        tree_frame = styled_frame(parent, bg=BG)
-        tree_frame.pack(fill="both", expand=True)
-        tree_frame.columnconfigure(0, weight=1)
-        tree_frame.rowconfigure(0, weight=1)
+        s.configure("Treeview",
+                    background=SURFACE, foreground=TEXT,
+                    fieldbackground=SURFACE, rowheight=24,
+                    font=FONT_MONO, borderwidth=0)
+        s.configure("Treeview.Heading",
+                    background=SURFACE2, foreground=ACCENT,
+                    font=FONT_H3, relief="flat", borderwidth=0)
+        s.map("Treeview",
+              background=[("selected", ACCENT_D)],
+              foreground=[("selected", WHITE)])
+        s.map("Treeview.Heading", relief=[("active", "flat")])
+        # Scrollbars
+        s.configure("Vertical.TScrollbar",   background=BORDER, troughcolor=SURFACE, arrowcolor=TEXT3, borderwidth=0)
+        s.configure("Horizontal.TScrollbar", background=BORDER, troughcolor=SURFACE, arrowcolor=TEXT3, borderwidth=0)
+        # Combobox
+        s.configure("TCombobox",
+                    fieldbackground=SURFACE2, background=SURFACE2,
+                    foreground=TEXT, bordercolor=BORDER,
+                    arrowcolor=ACCENT, selectbackground=SURFACE2,
+                    selectforeground=TEXT)
+        s.map("TCombobox",
+              fieldbackground=[("readonly", SURFACE2)],
+              foreground=[("readonly", TEXT)])
 
-        cols = ("rank","brand","model","mode","nvrs","cam_nvr",
-                "req_mbps","avail_mbps","storage","disk_cfg","nvr_cost","disk_cost","total")
-        hdrs = ("#","Brand","Model","Mode","NVRs","Cam/NVR",
-                "Req Mbps","Avail Mbps","Storage TB","Disk Config",
-                "NVR Cost","Disk Cost","Total $")
-        widths = (30,140,180,65,45,60,70,80,80,220,80,80,90)
+    # ── Build UI ──────────────────────────────────────────────────────────
+    def setup_ui(self):
+        # Header
+        hdr = mk_frame(self.root, bg=BG)
+        hdr.pack(fill="x", padx=24, pady=(18, 0))
+        mk_label(hdr, "CCTV Master Calculator", font=FONT_H1, fg=WHITE, bg=BG).pack(side="left")
+        mk_label(hdr, "  v33.6", font=FONT_BODY, fg=TEXT3, bg=BG).pack(side="left", pady=(6, 0))
+        sep(self.root).pack(fill="x", padx=24, pady=10)
 
-        self.tree = ttk.Treeview(tree_frame, columns=cols, show="headings",
-                                  selectmode="browse")
-        for col, hdr, w in zip(cols, hdrs, widths):
-            self.tree.heading(col, text=hdr)
-            anchor = "w" if col in ("brand","model","disk_cfg") else "center"
-            self.tree.column(col, width=w, minwidth=30, anchor=anchor)
+        # Notebook
+        self.nb = ttk.Notebook(self.root, style="TNotebook")
+        self.nb.pack(fill="both", expand=True, padx=20, pady=(0, 16))
 
-        vsb = ttk.Scrollbar(tree_frame, orient="vertical",   command=self.tree.yview)
-        hsb = ttk.Scrollbar(tree_frame, orient="horizontal", command=self.tree.xview)
-        self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
-        self.tree.tag_configure("best",  background="#0d2d1e", foreground=GREEN)
-        self.tree.tag_configure("odd",   background=SURFACE)
-        self.tree.tag_configure("even",  background=SURFACE2)
+        # Tab frames
+        self.tabs = []
+        for title in ["Cameras", "Calculate", "NVR Models", "HDD Prices"]:
+            f = mk_frame(self.nb, bg=SURFACE2)
+            self.nb.add(f, text=f"  {title}  ")
+            self.tabs.append(f)
 
+        self._build_cameras_tab(self.tabs[0])
+        self._build_calc_tab(self.tabs[1])
+        self._build_nvr_tab(self.tabs[2])
+        self._build_hdd_tab(self.tabs[3])
+
+    # ── Tab 1: Cameras ────────────────────────────────────────────────────
+    def _build_cameras_tab(self, tab):
+        tab.columnconfigure(0, weight=1)
+        tab.rowconfigure(1, weight=1)
+
+        # Input panel
+        inp = mk_frame(tab, bg=SURFACE)
+        inp.grid(row=0, column=0, sticky="ew", padx=16, pady=14)
+
+        mk_label(inp, "Add / Update Camera", font=FONT_H2, fg=ACCENT, bg=SURFACE).grid(
+            row=0, column=0, columnspan=10, sticky="w", padx=14, pady=(10, 8))
+
+        fields  = ["Name", "Count", "Mbps/cam", "Storage TB/cam"]
+        defaults= ["Bullet Cam", "64", "4.0", "1.0"]
+        self.ents = {}
+        for col, (f, d) in enumerate(zip(fields, defaults)):
+            mk_label(inp, f, bg=SURFACE, fg=TEXT2).grid(row=1, column=col*2, sticky="w", padx=(14 if col==0 else 8, 4))
+            var = tk.StringVar(value=d)
+            e = mk_entry(inp, textvariable=var, width=13)
+            e.grid(row=1, column=col*2+1, padx=(0, 4), pady=(0, 10))
+            self.ents[f] = var
+
+        btn_f = mk_frame(inp, bg=SURFACE)
+        btn_f.grid(row=1, column=len(fields)*2, padx=(8, 14), pady=(0, 10))
+        mk_btn(btn_f, "Add / Update", self.save_camera, style="primary").pack(side="left", padx=(0, 6))
+        mk_btn(btn_f, "Delete", self.delete_camera, style="danger").pack(side="left")
+
+        sep(tab).grid(row=0, column=0, sticky="ew", padx=16)
+
+        # Camera tree
+        tree_f = mk_frame(tab, bg=SURFACE2)
+        tree_f.grid(row=1, column=0, sticky="nsew", padx=16, pady=14)
+        tree_f.columnconfigure(0, weight=1)
+        tree_f.rowconfigure(0, weight=1)
+
+        cols = ("Name", "Count", "Mbps/cam", "Storage TB/cam")
+        self.tree = ttk.Treeview(tree_f, columns=cols, show="headings")
+        widths = [260, 80, 100, 130]
+        for c, w in zip(cols, widths):
+            self.tree.heading(c, text=c)
+            self.tree.column(c, width=w, anchor="center" if c != "Name" else "w")
+        self.tree.tag_configure("odd",  background=SURFACE)
+        self.tree.tag_configure("even", background=SURFACE2)
+
+        vsb = ttk.Scrollbar(tree_f, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=vsb.set)
         self.tree.grid(row=0, column=0, sticky="nsew")
         vsb.grid(row=0, column=1, sticky="ns")
-        hsb.grid(row=1, column=0, sticky="ew")
 
-        self.tree.bind("<<TreeviewSelect>>", self._on_tree_select)
+        self.tree.bind("<<TreeviewSelect>>", self._on_cam_select)
 
-        # Detail panel
-        separator(parent).pack(fill="x", pady=(8,0))
-        self.detail_frame = styled_frame(parent, bg=SURFACE)
-        self.detail_frame.pack(fill="x", pady=(8,0))
-        self.detail_lbl = label(self.detail_frame,
-                                "Select a row to see full details",
-                                size=9, color=TEXT2, bg=SURFACE)
-        self.detail_lbl.pack(anchor="w", padx=12, pady=8)
+    def _on_cam_select(self, event):
+        sel = self.tree.selection()
+        if not sel: return
+        vals = self.tree.item(sel[0])["values"]
+        keys = ["Name", "Count", "Mbps/cam", "Storage TB/cam"]
+        for k, v in zip(keys, vals):
+            self.ents[k].set(str(v))
 
-    # ── Section label helper ──────────────────────────────────────────────
-    def _section_label(self, parent, text):
-        f = styled_frame(parent, bg=BG)
-        f.pack(fill="x", pady=(8,4))
-        label(f, text, size=10, bold=True, color=ACCENT, bg=BG).pack(side="left")
-
-    # ── Camera rows ───────────────────────────────────────────────────────
-    def _add_cam_row(self):
-        self.cam_row_idx += 1
-        row = CameraGroupRow(self.cam_container, self.cam_row_idx, self._remove_cam_row)
-        self.cam_rows.append(row)
-
-    def _remove_cam_row(self, row):
-        row.frame.destroy()
-        self.cam_rows.remove(row)
-
-    # ── RAID pref change ─────────────────────────────────────────────────
-    def _on_raid_pref_change(self):
-        pref = self.raid_pref_var.get()
-        state = "normal" if pref in ("Any","RAID") else "disabled"
-        for child in self.raid_level_frame.winfo_children():
-            if isinstance(child, tk.Radiobutton):
-                child.config(state=state)
-
-    # ── Amazon fetch ─────────────────────────────────────────────────────
-    def _fetch_amazon(self):
-        self.price_status.config(text="Fetching prices from amazon.eg ...", fg=GOLD)
-        self.update()
-        sizes = sorted(DISK_FALLBACK.keys())
-
-        def done(prices, errors):
-            if prices:
-                for s, p in prices.items():
-                    if s in self.price_vars:
-                        self.price_vars[s].set(f"{p:.2f}")
-                msg = f"Updated {len(prices)} prices from amazon.eg"
-                if errors:
-                    msg += f"  ({len(errors)} fallback)"
-                self.price_status.config(text=msg, fg=GREEN)
-            else:
-                err_str = errors[0] if errors else "Unknown error"
-                self.price_status.config(text=f"Fetch failed: {err_str[:60]}", fg=RED)
-
-        def worker():
-            fetch_amazon_prices(sizes, lambda p, e: self.after(0, lambda: done(p, e)))
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    # ── Run calculation ───────────────────────────────────────────────────
-    def _run_calculation(self):
-        # Collect camera groups
-        camera_groups = []
-        for row in self.cam_rows:
-            try:
-                data = row.get_data()
-                if data["count"] <= 0:
-                    raise ValueError("Camera count must be > 0")
-                camera_groups.append(data)
-            except Exception as e:
-                messagebox.showerror("Input Error", f"Camera group {row.idx}: {e}")
-                return
-
-        if not camera_groups:
-            messagebox.showerror("Input Error", "Add at least one camera group.")
-            return
-
+    def save_camera(self):
         try:
-            retention = int(self.retention_var.get())
-            if retention < 1:
-                raise ValueError
+            vals = [self.ents[k].get() for k in ["Name", "Count", "Mbps/cam", "Storage TB/cam"]]
+            float(vals[1]); float(vals[2]); float(vals[3])
         except ValueError:
-            messagebox.showerror("Input Error", "Retention period must be a positive integer.")
+            messagebox.showerror("Error", "Count, Mbps/cam and Storage TB/cam must be numbers.")
             return
+        sel = self.tree.selection()
+        if sel:
+            self.tree.delete(sel[0])
+        tag = "even" if len(self.tree.get_children()) % 2 == 0 else "odd"
+        self.tree.insert("", "end", values=vals, tags=(tag,))
+        self.refresh_nvr_dropdowns()
 
-        # Collect disk prices
-        disk_catalog = {}
-        for s, var in self.price_vars.items():
+    def delete_camera(self):
+        for s in self.tree.selection():
+            self.tree.delete(s)
+        self.refresh_nvr_dropdowns()
+
+    # ── Tab 2: Calculate ──────────────────────────────────────────────────
+    def _build_calc_tab(self, tab):
+        tab.columnconfigure(0, weight=1)
+        tab.rowconfigure(1, weight=1)
+
+        ctrl = mk_frame(tab, bg=SURFACE)
+        ctrl.grid(row=0, column=0, sticky="ew", padx=16, pady=14)
+
+        mk_label(ctrl, "Calculation Settings", font=FONT_H2, fg=ACCENT, bg=SURFACE).pack(
+            anchor="w", padx=14, pady=(10, 8))
+
+        row = mk_frame(ctrl, bg=SURFACE)
+        row.pack(fill="x", padx=14, pady=(0, 10))
+
+        # Mode
+        mk_label(row, "Mode:", bg=SURFACE, fg=TEXT2).grid(row=0, column=0, sticky="w", padx=(0, 6))
+        self.auto_mode = tk.StringVar(value="AUTO")
+        for val, lbl in (("AUTO", "Auto (find best NVR combo)"), ("MANUAL", "Manual (choose NVR below)")):
+            rb = tk.Radiobutton(row, text=lbl, variable=self.auto_mode, value=val,
+                                bg=SURFACE, fg=TEXT2, selectcolor=SURFACE2,
+                                activebackground=SURFACE, activeforeground=TEXT,
+                                font=FONT_BODY, command=self._on_mode_change)
+            rb.grid(row=0, column=(1 if val=="AUTO" else 2), padx=(0, 16))
+
+        # RAID type
+        mk_label(row, "RAID Level:", bg=SURFACE, fg=TEXT2).grid(row=0, column=3, sticky="w", padx=(16, 6))
+        self.raid_var = tk.StringVar(value="RAID 5")
+        cb_raid = ttk.Combobox(row, textvariable=self.raid_var, width=10,
+                               state="readonly", values=["JBOD", "RAID 5", "RAID 6"])
+        cb_raid.grid(row=0, column=4, padx=(0, 16))
+
+        # Manual NVR selector
+        self.manual_frame = mk_frame(ctrl, bg=SURFACE)
+        self.manual_frame.pack(fill="x", padx=14, pady=(0, 10))
+        mk_label(self.manual_frame, "Manual NVR:", bg=SURFACE, fg=TEXT2).grid(row=0, column=0, padx=(0, 6))
+        self.manual_slots = []
+        for i in range(6):
+            var = tk.StringVar(value="None")
+            cb  = ttk.Combobox(self.manual_frame, textvariable=var, width=16,
+                               state="readonly", values=["None"])
+            cb.grid(row=0, column=i+1, padx=4)
+            self.manual_slots.append(var)
+        self.manual_frame.grid_remove()
+
+        # Buttons
+        btn_row = mk_frame(ctrl, bg=SURFACE)
+        btn_row.pack(fill="x", padx=14, pady=(0, 12))
+        mk_btn(btn_row, "⚡  Run Calculation", self.run_logic, style="primary").pack(side="left", padx=(0, 10))
+        mk_btn(btn_row, "Export Report", self.export_to_file, style="ghost").pack(side="left")
+        self.calc_status = mk_label(btn_row, "", fg=TEXT2, bg=SURFACE, font=FONT_BODY)
+        self.calc_status.pack(side="left", padx=16)
+
+        sep(tab).grid(row=0, column=0, sticky="ew", padx=16)
+
+        # Results
+        res_f = mk_frame(tab, bg=SURFACE2)
+        res_f.grid(row=1, column=0, sticky="nsew", padx=16, pady=14)
+        res_f.columnconfigure(0, weight=1)
+        res_f.rowconfigure(1, weight=1)
+
+        mk_label(res_f, "Results", font=FONT_H2, fg=WHITE, bg=SURFACE2).grid(
+            row=0, column=0, columnspan=2, sticky="w", padx=14, pady=(10, 6))
+
+        self.res_txt = tk.Text(res_f, bg=SURFACE, fg=TEXT, font=FONT_MONO,
+                               relief="flat", bd=0, state="disabled",
+                               highlightthickness=0, wrap="none",
+                               padx=14, pady=10)
+        vsb2 = ttk.Scrollbar(res_f, orient="vertical", command=self.res_txt.yview)
+        hsb2 = ttk.Scrollbar(res_f, orient="horizontal", command=self.res_txt.xview)
+        self.res_txt.configure(yscrollcommand=vsb2.set, xscrollcommand=hsb2.set)
+        self.res_txt.grid(row=1, column=0, sticky="nsew")
+        vsb2.grid(row=1, column=1, sticky="ns")
+        hsb2.grid(row=2, column=0, sticky="ew")
+
+        # Text tags for coloring
+        self.res_txt.tag_configure("header",  foreground=ACCENT,   font=("Consolas", 9, "bold"))
+        self.res_txt.tag_configure("best",    foreground=GREEN,    font=("Consolas", 9, "bold"))
+        self.res_txt.tag_configure("label",   foreground=TEXT2)
+        self.res_txt.tag_configure("value",   foreground=TEXT)
+        self.res_txt.tag_configure("divider", foreground=TEXT3)
+        self.res_txt.tag_configure("cost",    foreground=GOLD,     font=("Consolas", 9, "bold"))
+        self.res_txt.tag_configure("error",   foreground=RED)
+
+        self.refresh_nvr_dropdowns()
+        self._on_mode_change()
+
+    def _on_mode_change(self):
+        if self.auto_mode.get() == "MANUAL":
+            self.manual_frame.grid()
+        else:
+            self.manual_frame.grid_remove()
+
+    def refresh_nvr_dropdowns(self):
+        names = ["None"] + [n["Name"] for n in self.nvr_list]
+        for cb_var in self.manual_slots:
+            # get parent combobox widget
+            pass
+        # Update all comboboxes in manual_frame
+        for child in self.manual_frame.winfo_children():
+            if isinstance(child, ttk.Combobox):
+                cur = child.get()
+                child["values"] = names
+                if cur not in names:
+                    child.set("None")
+
+    # ── Tab 3: NVR Models ─────────────────────────────────────────────────
+    def _build_nvr_tab(self, tab):
+        tab.columnconfigure(0, weight=1)
+        tab.rowconfigure(1, weight=1)
+
+        # Add new NVR
+        add_f = mk_frame(tab, bg=SURFACE)
+        add_f.grid(row=0, column=0, sticky="ew", padx=16, pady=14)
+        mk_label(add_f, "Add New NVR Model", font=FONT_H2, fg=ACCENT, bg=SURFACE).grid(
+            row=0, column=0, columnspan=12, sticky="w", padx=14, pady=(10, 8))
+
+        self.nf = {}
+        fields = [("Name", 14), ("SKU", 14), ("CH", 6), ("MB", 6), ("Slots", 6), ("Price", 8)]
+        for col, (f, w) in enumerate(fields):
+            mk_label(add_f, f, bg=SURFACE, fg=TEXT2).grid(row=1, column=col*2, sticky="w", padx=(14 if col==0 else 6, 3))
+            var = tk.StringVar()
+            e = mk_entry(add_f, textvariable=var, width=w)
+            e.grid(row=1, column=col*2+1, padx=(0, 2), pady=(0, 10))
+            self.nf[f] = var
+
+        self.na = tk.StringVar(value="RAID")
+        mk_label(add_f, "RAID/JBOD", bg=SURFACE, fg=TEXT2).grid(row=1, column=12, sticky="w", padx=(6, 3))
+        ttk.Combobox(add_f, textvariable=self.na, width=7,
+                     state="readonly", values=["RAID", "JBOD"]).grid(row=1, column=13, padx=(0, 6), pady=(0, 10))
+        mk_btn(add_f, "ADD TO DATABASE", self.add_new_nvr, style="primary").grid(
+            row=1, column=14, padx=(6, 14), pady=(0, 10))
+
+        sep(tab).grid(row=0, column=0, sticky="ew", padx=16)
+
+        # NVR list (scrollable)
+        list_outer = mk_frame(tab, bg=SURFACE2)
+        list_outer.grid(row=1, column=0, sticky="nsew", padx=16, pady=14)
+        list_outer.columnconfigure(0, weight=1)
+        list_outer.rowconfigure(0, weight=1)
+
+        canvas = tk.Canvas(list_outer, bg=SURFACE2, highlightthickness=0)
+        vsb    = ttk.Scrollbar(list_outer, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+
+        self.nvr_frame = mk_frame(canvas, bg=SURFACE2)
+        self.nvr_canvas_win = canvas.create_window((0, 0), window=self.nvr_frame, anchor="nw")
+
+        def _on_resize(e):
+            canvas.itemconfig(self.nvr_canvas_win, width=e.width)
+        canvas.bind("<Configure>", _on_resize)
+        self.nvr_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        self.nvr_canvas = canvas
+        self.nvr_price_entries = []
+
+        # Column headers
+        hdr = mk_frame(self.nvr_frame, bg=SURFACE3)
+        hdr.pack(fill="x", pady=(0, 2))
+        for txt, w in [("Name", 160), ("SKU", 140), ("Channels", 70), ("Max MB/s", 75),
+                       ("HDD Slots", 75), ("Price ($)", 90), ("Mode", 60), ("", 100)]:
+            mk_label(hdr, txt, font=FONT_H3, fg=ACCENT, bg=SURFACE3, width=w//8, anchor="w").pack(
+                side="left", padx=8, pady=6)
+
+        self.refresh_nvr_list_tab()
+
+    def refresh_nvr_list_tab(self):
+        for w in self.nvr_frame.winfo_children():
+            if w != self.nvr_frame.winfo_children()[0]:  # keep header
+                w.destroy()
+        self.nvr_price_entries = []
+
+        for i, n in enumerate(self.nvr_list):
+            row_bg = SURFACE if i % 2 == 0 else SURFACE2
+            row = mk_frame(self.nvr_frame, bg=row_bg)
+            row.pack(fill="x", pady=1)
+
+            mk_label(row, n["Name"],         bg=row_bg, fg=TEXT,  width=20).pack(side="left", padx=(12,4), pady=4)
+            mk_label(row, n["SKU"],          bg=row_bg, fg=TEXT2, font=FONT_MONO, width=16).pack(side="left", padx=4)
+            mk_label(row, str(n["CH"]),      bg=row_bg, fg=TEXT,  width=9,  anchor="center").pack(side="left", padx=4)
+            mk_label(row, str(n["MB"]),      bg=row_bg, fg=TEXT,  width=9,  anchor="center").pack(side="left", padx=4)
+            mk_label(row, str(n["Slots"]),   bg=row_bg, fg=TEXT,  width=9,  anchor="center").pack(side="left", padx=4)
+
+            price_var = tk.StringVar(value=f"{n['Price']:.2f}")
+            e = mk_entry(row, textvariable=price_var, width=10, bg=row_bg)
+            e.pack(side="left", padx=4)
+            self.nvr_price_entries.append(price_var)
+
+            mk_label(row, n.get("mode", "RAID"), bg=row_bg, fg=GOLD if n.get("mode")=="RAID" else ACCENT,
+                     width=7, anchor="center").pack(side="left", padx=4)
+
+            mk_btn(row, "Delete", lambda idx=i: self.delete_nvr(idx), style="danger").pack(
+                side="right", padx=(4, 12))
+
+        # Save button
+        save_row = mk_frame(self.nvr_frame, bg=SURFACE2)
+        save_row.pack(fill="x", pady=8, padx=12)
+        mk_btn(save_row, "Save All Price Updates", self.save_nvr_prices, style="success").pack(side="left")
+
+    def add_new_nvr(self):
+        try:
+            row = {
+                "Name":  self.nf["Name"].get().strip(),
+                "SKU":   self.nf["SKU"].get().strip(),
+                "CH":    int(self.nf["CH"].get()),
+                "MB":    int(self.nf["MB"].get()),
+                "Slots": int(self.nf["Slots"].get()),
+                "Price": float(self.nf["Price"].get()),
+                "mode":  self.na.get(),
+            }
+            if not row["Name"]: raise ValueError("Name required")
+            self.nvr_list.append(row)
+            self.save_all_data()
+            self.refresh_nvr_dropdowns()
+            self.refresh_nvr_list_tab()
+            messagebox.showinfo("Success", "NVR Added.")
+        except Exception:
+            messagebox.showerror("Error", "Check input fields.")
+
+    def save_nvr_prices(self):
+        for i, var in enumerate(self.nvr_price_entries):
             try:
-                p = float(var.get())
-                if p > 0:
-                    disk_catalog[s] = p
+                self.nvr_list[i]["Price"] = float(var.get())
             except ValueError:
                 pass
-        if not disk_catalog:
-            messagebox.showerror("Input Error", "No valid disk prices found.")
+        self.save_all_data()
+        messagebox.showinfo("Saved", "NVR Prices Updated.")
+
+    def delete_nvr(self, idx):
+        if messagebox.askyesno("Confirm", "Delete this model?"):
+            self.nvr_list.pop(idx)
+            self.save_all_data()
+            self.refresh_nvr_dropdowns()
+            self.refresh_nvr_list_tab()
+
+    # ── Tab 4: HDD Prices ─────────────────────────────────────────────────
+    def _build_hdd_tab(self, tab):
+        tab.columnconfigure(0, weight=1)
+
+        outer = mk_frame(tab, bg=SURFACE)
+        outer.grid(row=0, column=0, sticky="nsew", padx=16, pady=14)
+
+        mk_label(outer, "Hard Drive Prices  (EGP per drive)", font=FONT_H2, fg=ACCENT, bg=SURFACE).pack(
+            anchor="w", padx=14, pady=(12, 10))
+
+        grid = mk_frame(outer, bg=SURFACE)
+        grid.pack(fill="x", padx=14, pady=(0, 10))
+
+        self.hdd_ents = {}
+        for i, cap in enumerate(sorted(self.hdd_prices.keys())):
+            col, row = (i % 4) * 3, i // 4
+            mk_label(grid, f"{cap} TB", fg=TEXT2, bg=SURFACE, width=6).grid(
+                row=row, column=col, sticky="w", padx=(0, 4), pady=5)
+            var = tk.StringVar(value=f"{self.hdd_prices[cap]:.2f}")
+            e = mk_entry(grid, textvariable=var, width=10)
+            e.grid(row=row, column=col+1, padx=(0, 24), pady=5)
+            self.hdd_ents[cap] = var
+
+        btn_row = mk_frame(outer, bg=SURFACE)
+        btn_row.pack(anchor="w", padx=14, pady=(6, 14))
+        mk_btn(btn_row, "Save HDD Prices", self.save_hdds, style="success").pack(side="left")
+
+    def save_hdds(self):
+        for cap, var in self.hdd_ents.items():
+            try:
+                self.hdd_prices[cap] = float(var.get())
+            except ValueError:
+                pass
+        self.save_all_data()
+        messagebox.showinfo("Saved", "HDD Prices Updated.")
+
+    # ── Calculation engine ────────────────────────────────────────────────
+    def calculate_engine(self, cams, hw_cfg, split_ratio):
+        """
+        cams: list of camera row values [name, count, mbps, tb]
+        hw_cfg: list of NVR dicts (one per unit, can repeat)
+        split_ratio: how to distribute cameras across units
+        """
+        n_units = len(hw_cfg)
+        even    = split_ratio is None
+        u_list  = []
+        cur_c   = 0
+
+        for i, hw in enumerate(hw_cfg):
+            if even:
+                take = math.ceil(len(cams) / n_units) if i < n_units-1 else len(cams) - cur_c
+            else:
+                take = math.ceil(len(cams) * split_ratio[i])
+                take = min(take, len(cams) - cur_c)
+
+            u_brk = cams[cur_c:cur_c + take]
+            cur_c += take
+
+            u_mb  = sum(int(c[1]) * float(c[2]) for c in u_brk)
+            u_tb  = sum(int(c[1]) * float(c[3]) for c in u_brk)
+            u_c   = sum(int(c[1]) for c in u_brk)
+
+            raid  = self.raid_var.get()
+            parity = 0 if raid == "JBOD" else (1 if raid == "RAID 5" else 2)
+            mode_str = raid
+
+            hd = get_best_hdd(u_tb, hw["Slots"], parity, self.hdd_prices)
+            if hd is None:
+                return None
+
+            cam_breakdown = {c[0]: int(c[1]) for c in u_brk}
+            u_list.append({
+                "name": hw["Name"], "m": hw, "mode": mode_str,
+                "mb": u_mb, "load": u_mb / hw["MB"] * 100 if hw["MB"] > 0 else 0,
+                "c_total": u_c, "cam_breakdown": cam_breakdown,
+                "qty": hd["qty"], "cap": hd["cap"],
+                "total_tb": hd["qty"] * hd["cap"],
+                "cost": hw["Price"] + hd["cost"], "h": hd,
+            })
+
+        return u_list
+
+    def run_logic(self):
+        cams = [self.tree.item(i)["values"] for i in self.tree.get_children()]
+        if not cams:
+            messagebox.showwarning("Warning", "Add cameras first.")
             return
 
-        raid_pref      = self.raid_pref_var.get().lower()
-        brand_pref     = self.brand_var.get()
-        raid_type_pref = self.raid_type_var.get()
-
-        self.calc_btn.config(state="disabled", text="Calculating...")
-        self.status_label.config(text="", fg=TEXT2)
-        self.update()
+        self.calc_status.config(text="Calculating...", fg=GOLD)
+        self.root.update()
 
         try:
-            results, total_storage_tb, total_cams, total_tp = calculate(
-                camera_groups, retention, raid_pref, brand_pref,
-                disk_catalog, raid_type_pref
-            )
+            if self.auto_mode.get() == "AUTO":
+                best_cfg, best_cost = None, float("inf")
+                pool = [n for n in self.nvr_list if (
+                    n.get("mode","RAID") == "JBOD" and self.raid_var.get() == "JBOD" or
+                    n.get("mode","RAID") == "RAID" and self.raid_var.get() != "JBOD"
+                )]
+                if not pool:
+                    pool = list(self.nvr_list)
+
+                total_cams = sum(int(c[1]) for c in cams)
+                for n_u in range(1, min(5, len(pool)+1)):
+                    for combo in itertools.combinations_with_replacement(pool, n_u):
+                        hw_c = list(combo)
+                        max_ch = sum(n["CH"] for n in hw_c)
+                        if max_ch < total_cams:
+                            continue
+                        res = self.calculate_engine(cams, hw_c, None)
+                        if res is None:
+                            continue
+                        cost = sum(x["cost"] for x in res)
+                        if cost < best_cost:
+                            best_cost = cost
+                            best_cfg  = res
+                active_hw = None
+                txt       = best_cfg
+            else:
+                active_hw = [next((n for n in self.nvr_list if n["Name"] == mv.get()), None)
+                             for mv in self.manual_slots if mv.get() != "None"]
+                active_hw = [h for h in active_hw if h]
+                if not active_hw:
+                    messagebox.showwarning("Warning", "Select at least one NVR.")
+                    self.calc_status.config(text="", fg=TEXT2)
+                    return
+                txt = self.calculate_engine(cams, active_hw, None)
+
+            if not txt:
+                self._show_result_error("ERROR: No valid configuration found.\nCheck that HDD sizes and NVR slots can satisfy the storage requirement.")
+                self.calc_status.config(text="No solution found", fg=RED)
+                return
+
+            self.generate_detailed_report(txt)
+            total_cost = sum(x["cost"] for x in txt)
+            self.calc_status.config(text=f"Done — Total: ${total_cost:,.2f}", fg=GREEN)
+
         except Exception as e:
-            messagebox.showerror("Calculation Error", str(e))
-            self.calc_btn.config(state="normal", text="Calculate")
+            self._show_result_error(f"ERROR: {e}")
+            self.calc_status.config(text="Error", fg=RED)
+
+    def _show_result_error(self, msg):
+        self.res_txt.config(state="normal")
+        self.res_txt.delete("1.0", "end")
+        self.res_txt.insert("end", msg, "error")
+        self.res_txt.config(state="disabled")
+
+    def generate_detailed_report(self, cfg):
+        now    = datetime.now().strftime("%Y-%m-%d %H:%M")
+        total  = sum(u["cost"] for u in cfg)
+        lines  = []
+
+        def write(text, tag="value"):
+            lines.append((text, tag))
+
+        write("=" * 72 + "\n", "divider")
+        write(f" CCTV DESIGN REPORT  —  {now}\n", "header")
+        write(f" SYSTEM TOTAL: ${total:,.2f}\n", "cost")
+        write("=" * 72 + "\n", "divider")
+
+        for i, u in enumerate(cfg, 1):
+            write(f"\nUNIT #{i}: {u['name']}\n", "best")
+            write("-" * 50 + "\n", "divider")
+            write(f"  Mode:     ", "label"); write(f"{u['mode']}\n", "value")
+            write(f"  Load:     ", "label"); write(f"{u['mb']:.1f} Mbps  ({u['load']:.1f}% of {u['m']['MB']} MB/s capacity)\n", "value")
+            write(f"  Cameras:  ", "label"); write(f"{u['c_total']} total  ", "value")
+            if u["cam_breakdown"]:
+                parts = ",  ".join(f"{n}: {c}" for n, c in u["cam_breakdown"].items())
+                write(f"({parts})\n", "value")
+            else:
+                write("\n", "value")
+            write(f"  Storage:  ", "label")
+            write(f"{u['qty']} × {u['cap']} TB  = {u['total_tb']} TB  ", "value")
+            write(f"(usable: {u['h']['data']} × {u['cap']} = {u['h']['data']*u['cap']} TB)\n", "label")
+            write(f"  Cost:     ", "label")
+            write(f"NVR ${u['m']['Price']:,.2f}  +  HDD ${u['h']['cost']:,.2f}  =  ${u['cost']:,.2f}\n", "cost")
+
+        write("\n" + "=" * 72 + "\n", "divider")
+        write(f" GRAND TOTAL:  ${total:,.2f}\n", "cost")
+        write("=" * 72 + "\n", "divider")
+
+        self.res_txt.config(state="normal")
+        self.res_txt.delete("1.0", "end")
+        for text, tag in lines:
+            self.res_txt.insert("end", text, tag)
+        self.res_txt.config(state="disabled")
+
+        self.last_report = "".join(t for t, _ in lines)
+        self.nb.select(self.tabs[1])
+
+    def export_to_file(self):
+        if not self.last_report:
+            messagebox.showwarning("Warning", "Calculate a solution first!")
             return
-
-        self._render_summary({
-            "total_cams": total_cams,
-            "total_tp": total_tp,
-            "storage_tb": total_storage_tb,
-            "retention": retention,
-            "groups": len(camera_groups),
-            "solutions": len(results),
-        })
-        self._render_results(results)
-        self.calc_btn.config(state="normal", text="Calculate")
-
-        if results:
-            self.status_label.config(
-                text=f"Best: {results[0]['brand']} {results[0]['name']}  —  ${results[0]['grand_total']:,.0f}",
-                fg=GREEN)
-        else:
-            self.status_label.config(text="No solutions found. Try relaxing filters.", fg=RED)
-
-    # ── Summary bar ───────────────────────────────────────────────────────
-    def _render_summary(self, data):
-        for w in self.summary_frame.winfo_children():
-            w.destroy()
-
-        items = []
-        if data:
-            items = [
-                ("Cameras",    str(data["total_cams"])),
-                ("Throughput", f"{data['total_tp']:.1f} Mbps"),
-                ("Storage",    f"{data['storage_tb']:.2f} TB"),
-                ("Retention",  f"{data['retention']} days"),
-                ("Cam Types",  str(data["groups"])),
-                ("Solutions",  str(data["solutions"])),
-            ]
-        else:
-            items = [("Cameras","—"),("Throughput","—"),("Storage","—"),
-                     ("Retention","—"),("Cam Types","—"),("Solutions","—")]
-
-        for i, (lbl, val) in enumerate(items):
-            cell = styled_frame(self.summary_frame, bg=SURFACE2 if i % 2 == 0 else SURFACE)
-            cell.pack(side="left", expand=True, fill="both")
-            label(cell, lbl, size=8, color=TEXT3, bg=cell["bg"], anchor="center").pack(pady=(8,2))
-            color = ACCENT if lbl == "Storage" else (GREEN if lbl == "Solutions" else TEXT)
-            label(cell, val, size=11, bold=True, color=color, bg=cell["bg"], anchor="center").pack(pady=(0,8))
-
-    # ── Results table ─────────────────────────────────────────────────────
-    def _render_results(self, results):
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-
-        self._results = results
-        self.results_count_lbl.config(
-            text=f"{len(results)} result{'s' if len(results)!=1 else ''}")
-
-        for i, r in enumerate(results):
-            ta  = f"{int(r['tp_available'])}" if r["tp_available"] else "N/A"
-            cfg = r["disk_cfg"]["config"]
-            tag = "best" if i == 0 else ("odd" if i % 2 == 1 else "even")
-            self.tree.insert("", "end", iid=str(i), tags=(tag,), values=(
-                "★" if i == 0 else str(i+1),
-                r["brand"],
-                r["name"],
-                r["effective_raid"],
-                r["nvrs"],
-                r["cams_per_nvr"],
-                f"{r['tp_required']:.0f}",
-                ta,
-                f"{r['storage_tb']:.2f}",
-                cfg,
-                f"${r['nvr_cost']:,.0f}",
-                f"${r['disk_cost']:,.0f}",
-                f"${r['grand_total']:,.0f}",
-            ))
-
-        self.detail_lbl.config(text="Select a row to see full details", fg=TEXT2)
-
-    # ── Row detail ────────────────────────────────────────────────────────
-    def _on_tree_select(self, event):
-        sel = self.tree.selection()
-        if not sel or not hasattr(self, "_results"):
-            return
-        idx = int(sel[0])
-        if idx >= len(self._results):
-            return
-        r   = self._results[idx]
-        cfg = r["disk_cfg"]
-        ta  = f"{int(r['tp_available'])} Mbps" if r["tp_available"] else "N/A"
-
-        txt = (
-            f"  {r['brand']}  |  {r['name']}  ({r['part']})  |  {r['effective_raid']}   "
-            f"      NVRs: {r['nvrs']}   Cams/NVR: {r['cams_per_nvr']}   "
-            f"Throughput: {r['tp_required']:.0f} Mbps req / {ta} avail   "
-            f"Storage: {r['storage_tb']:.2f} TB   "
-            f"Disks/NVR: {cfg['drives']} x {cfg['drive_size_tb']} TB   "
-            f"Total drives: {r['total_drives']}   "
-            f"Usable: {cfg['usable_tb']:.1f} TB/NVR   "
-            f"NVR: ${r['nvr_cost']:,.0f}   Disks: ${r['disk_cost']:,.0f}   "
-            f"Grand Total: ${r['grand_total']:,.0f}"
-        )
-        color = GREEN if idx == 0 else TEXT
-        self.detail_lbl.config(text=txt, fg=color, wraplength=self.detail_frame.winfo_width()-24)
+        fname = filedialog.asksaveasfilename(
+            defaultextension=".txt",
+            initialfile=f"CCTV_Design_{datetime.now().strftime('%Y%m%d')}",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")])
+        if fname:
+            with open(fname, "w") as f:
+                f.write(self.last_report)
+            messagebox.showinfo("Success", "Report exported successfully.")
 
 
 # ─────────────────────────── Entry Point ───────────────────────────────────
-
 if __name__ == "__main__":
-    app = NVRApp()
-    app.mainloop()
+    root = tk.Tk()
+    root.geometry("1200x820")
+    app = CCTVApp(root)
+    root.mainloop()

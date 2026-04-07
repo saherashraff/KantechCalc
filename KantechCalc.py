@@ -46,7 +46,7 @@ def get_best_hdd(required_tb, slots, parity, price_dict):
 class CCTVApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("CCTV MASTER V34.6 - OPTIMIZED MANUAL")
+        self.root.title("CCTV MASTER V34.7 - 99% SWEEP")
         self.load_all_data()
         self.setup_ui()
 
@@ -92,7 +92,7 @@ class CCTVApp:
         ttk.Button(f_a, text="RUN AUTO", command=lambda: self.run_logic(True)).pack(side="left", padx=5)
         self.res_txt = tk.Text(self.tabs[1], font=("Consolas", 10)); self.res_txt.pack(fill="both", expand=True)
 
-        # TAB 3: MANUAL (SMART OPTIMIZED)
+        # TAB 3: MANUAL
         f_m_top = ttk.Frame(self.tabs[2], padding=5); f_m_top.pack(fill="x")
         ttk.Label(f_m_top, text="Buffer %:").pack(side="left")
         ttk.Entry(f_m_top, textvariable=self.storage_buffer, width=5).pack(side="left", padx=5)
@@ -103,7 +103,7 @@ class CCTVApp:
             cb = ttk.Combobox(f, textvariable=nv, width=45, state="readonly"); cb.pack(side="left")
             ttk.Combobox(f, textvariable=mv, values=["RAID 5", "RAID 6", "JBOD"], width=10, state="readonly").pack(side="left", padx=5)
             self.manual_slots.append((nv, mv, cb))
-        ttk.Button(self.tabs[2], text="CALCULATE & OPTIMIZE MANUAL", command=lambda: self.run_logic(False)).pack(pady=5)
+        ttk.Button(self.tabs[2], text="FULL SWEEP OPTIMIZATION (1-99%)", command=lambda: self.run_logic(False)).pack(pady=5)
         self.man_txt = tk.Text(self.tabs[2], font=("Consolas", 10), bg="#f4f4f4"); self.man_txt.pack(fill="both", expand=True)
         
         self.refresh_nvr_dropdowns(); self.setup_hdds()
@@ -151,6 +151,7 @@ class CCTVApp:
         for i in range(num):
             u_brk, u_mb, u_tb, u_c = {}, 0, 0, 0
             for c in cur_c:
+                # Logic: Divide based on ratio. Last unit always takes the remainder.
                 take = math.ceil(c['qty']/(num-i)) if even else math.floor(c['qty']*split_ratio) if i<num-1 else c['qty']
                 take = min(c['qty'], take); u_brk[c['name']] = take; u_mb += take*c['mbps']; u_tb += take*c['tb']; u_c += take
                 c['qty'] -= take
@@ -177,17 +178,17 @@ class CCTVApp:
             for n_u in range(1, 7):
                 for combo in itertools.combinations_with_replacement(pool, n_u):
                     hw_c = [{"m": n, "mode": mode} for n in combo]
-                    # Logic: Try Even split, then ratio splits
                     res = self.calculate_engine(cams, hw_c, 1.0, True)
                     if not res:
-                        for r in [0.3, 0.5, 0.7]:
+                        # Auto mode remains efficient with broad ratios
+                        for r in [0.1, 0.3, 0.5, 0.7, 0.9]:
                             res = self.calculate_engine(cams, hw_c, r, False)
                             if res: break
                     if res:
                         cost = sum(x['m'][5] + x['h']['cost'] for x in res)
                         if cost < best_cost: best_cost, best_cfg = cost, {"total": cost, "units": res}
         else:
-            # --- STAGE 1: GATHER MANUAL SELECTION ---
+            # --- HIGH PRECISION MANUAL SWEEP (1% to 99%) ---
             active_hw = []
             for nv, mv, _ in self.manual_slots:
                 val = nv.get()
@@ -196,12 +197,17 @@ class CCTVApp:
                     match = next((n for n in self.nvr_list if n[1] == sku), None)
                     if match: active_hw.append({"m": match, "mode": mv.get()})
 
-            # --- STAGE 2: OPTIMIZED SEARCH ON MANUAL SELECTION ---
             if active_hw:
-                # Try all split variations to find the CHEAPEST distribution for these NVRs
-                variations = [(1.0, True), (0.3, False), (0.5, False), (0.7, False)]
-                for ratio, is_even in variations:
-                    res = self.calculate_engine(cams, active_hw, ratio, is_even)
+                # 1. Try Even Split first
+                res_even = self.calculate_engine(cams, active_hw, 1.0, True)
+                if res_even:
+                    best_cost = sum(x['m'][5] + x['h']['cost'] for x in res_even)
+                    best_cfg = {"total": best_cost, "units": res_even}
+
+                # 2. Sweep 1% to 99% in steps of 0.01
+                for i in range(1, 100):
+                    ratio = i / 100.0
+                    res = self.calculate_engine(cams, active_hw, ratio, False)
                     if res:
                         cost = sum(x['m'][5] + x['h']['cost'] for x in res)
                         if cost < best_cost:
@@ -209,7 +215,7 @@ class CCTVApp:
 
         txt = self.res_txt if auto else self.man_txt
         txt.delete("1.0", tk.END)
-        if best_cfg: txt.insert("1.0", self.generate_detailed_report(best_cfg, "AUTO" if auto else "MANUAL OPTIMIZED"))
+        if best_cfg: txt.insert("1.0", self.generate_detailed_report(best_cfg, "AUTO" if auto else "MANUAL 99% SWEEP"))
         else: txt.insert("1.0", "ERROR: Hardware limits exceeded.")
 
 if __name__ == "__main__":

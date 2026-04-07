@@ -46,7 +46,7 @@ def get_best_hdd(required_tb, slots, parity, price_dict):
 class CCTVApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("CCTV MASTER V34.0 - IMPROVED LOAD BALANCING")
+        self.root.title("CCTV MASTER V34.1 - SMART MANUAL MODE")
         self.last_report = ""
         self.load_all_data()
         self.setup_ui()
@@ -203,53 +203,34 @@ class CCTVApp:
         self.last_report = report
         return report
 
-    def calculate_engine(self, cams, hw_c):
-        """Modified engine to handle mixed unit sizes (Smart Overflow)"""
-        u_list = []
-        cur_cams = [dict(c) for c in cams]
-        
+    def calculate_engine(self, cams, hw_c, split_ratio=1.0, even=False):
+        """Universal engine used by both Auto and Manual to find best HDD fit"""
+        u_list, cur_c = [], [dict(c) for c in cams]
+        num = len(hw_c)
         try: buf_mult = 1 + (float(self.storage_buffer.get()) / 100)
         except: buf_mult = 1.0
 
-        # Sort hardware by size (Channels) ascending so we fill small units properly
-        hw_sorted = sorted(hw_c, key=lambda x: x['m'][2])
-
-        for hw in hw_sorted:
+        for i in range(num):
             u_brk, u_mb, u_tb, u_c = {}, 0, 0, 0
-            # How many channels can this unit take?
-            ch_limit = hw['m'][2]
-            mb_limit = hw['m'][3]
-
-            for c in cur_cams:
-                if c['qty'] <= 0: continue
-                # Take as much as the unit can handle
-                remaining_ch = ch_limit - u_c
-                take = min(c['qty'], remaining_ch)
+            for c in cur_c:
+                take = math.ceil(c['qty']/(num-i)) if even else math.floor(c['qty']*split_ratio) if i<num-1 else c['qty']
+                take = min(c['qty'], take)
+                # Ensure we don't exceed NVR channel limit
+                take = min(take, hw_c[i]['m'][2] - u_c)
                 
-                # Double check Mbps limit
-                if (u_mb + (take * c['mbps'])) > mb_limit:
-                    take = math.floor((mb_limit - u_mb) / c['mbps'])
-                    take = max(0, take)
-
-                u_brk[c['name']] = take
-                u_mb += take * c['mbps']
-                u_tb += take * c['tb']
-                u_c += take
+                u_brk[c['name']] = take; u_mb += take*c['mbps']; u_tb += take*c['tb']; u_c += take
                 c['qty'] -= take
-
+            
             u_tb_buffered = u_tb * buf_mult
-            p = 0 if hw['m'][6]=="JBOD" else (1 if hw['mode']=="RAID 5" else 2 if hw['mode']=="RAID 6" else 0)
-            hc, hd = get_best_hdd(u_tb_buffered, hw['m'][4], p, self.hdd_prices)
+            p = 0 if hw_c[i]['m'][6]=="JBOD" else (1 if hw_c[i]['mode']=="RAID 5" else 2 if hw_c[i]['mode']=="RAID 6" else 0)
+            hc, hd = get_best_hdd(u_tb_buffered, hw_c[i]['m'][4], p, self.hdd_prices)
             
             if not hd and u_tb_buffered > 0.01: return None
-            if u_c == 0 and u_tb_buffered > 0.01: return None # Safety check
-
-            u_list.append({"m": hw['m'], "c_total": u_c, "cam_breakdown": u_brk, "mb": u_mb, "tb": u_tb, "h": hd or {"qty":0, "cap":0, "cost":0, "total_tb":0}, "mode": "JBOD" if p==0 else hw['mode']})
-
-        # Check if all cameras were placed
-        if sum(c['qty'] for c in cur_cams) > 0:
-            return None
+            if u_mb > hw_c[i]['m'][3]: return None
             
+            u_list.append({"m": hw_c[i]['m'], "c_total": u_c, "cam_breakdown": u_brk, "mb": u_mb, "tb": u_tb, "h": hd or {"qty":0, "cap":0, "cost":0, "total_tb":0}, "mode": "JBOD" if p==0 else hw_c[i]['mode']})
+        
+        if sum(c['qty'] for c in cur_c) > 0: return None
         return u_list
 
     def run_logic(self, auto):
@@ -266,11 +247,12 @@ class CCTVApp:
             for n_u in range(1, 7):
                 for combo in itertools.combinations_with_replacement(pool, n_u):
                     hw_c = [{"m": n, "mode": mode} for n in combo]
-                    res = self.calculate_engine(cams, hw_c)
-                    if res:
-                        cost = sum(x['m'][5] + x['h']['cost'] for x in res)
-                        if cost < best_cost: 
-                            best_cost, best_cfg = cost, {"total": cost, "units": res}
+                    # Check splits to find cheapest
+                    for r in [1.0] + [x/10.0 for x in range(1, 10)]:
+                        res = self.calculate_engine(cams, hw_c, r, (r==1.0))
+                        if res:
+                            cost = sum(x['m'][5] + x['h']['cost'] for x in res)
+                            if cost < best_cost: best_cost, best_cfg = cost, {"total": cost, "units": res}
         else:
             active_hw = []
             for nv, mv, _ in self.manual_slots:
@@ -281,8 +263,13 @@ class CCTVApp:
                     if match: active_hw.append({"m": match, "mode": mv.get()})
 
             if active_hw:
-                res = self.calculate_engine(cams, active_hw)
-                if res: best_cfg = {"total": sum(x['m'][5] + x['h']['cost'] for x in res), "units": res}
+                # Manual mode now uses the exact same split-search logic as Auto
+                for r in [1.0] + [x/100.0 for x in range(1, 100)]:
+                    res = self.calculate_engine(cams, active_hw, r, (r==1.0))
+                    if res:
+                        cost = sum(x['m'][5] + x['h']['cost'] for x in res)
+                        if cost < best_cost: 
+                            best_cost, best_cfg = cost, {"total": cost, "units": res}
 
         txt = self.res_txt if auto else self.man_txt
         txt.delete("1.0", tk.END)

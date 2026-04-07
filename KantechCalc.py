@@ -46,7 +46,7 @@ def get_best_hdd(required_tb, slots, parity, price_dict):
 class CCTVApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("CCTV MASTER V35.1 - STABLE")
+        self.root.title("CCTV MASTER V35.5 - PRECISE AUTO SWEEP")
         self.load_all_data()
         self.setup_ui()
 
@@ -90,7 +90,7 @@ class CCTVApp:
         ttk.Combobox(f_a, textvariable=self.auto_mode, values=["RAID 5", "RAID 6", "JBOD"], state="readonly", width=10).pack(side="left")
         ttk.Label(f_a, text=" Buffer %:").pack(side="left")
         ttk.Entry(f_a, textvariable=self.storage_buffer, width=5).pack(side="left", padx=5)
-        ttk.Button(f_a, text="RUN AUTO", command=lambda: self.run_logic(True)).pack(side="left", padx=5)
+        ttk.Button(f_a, text="RUN AUTO (DEEP SEARCH)", command=lambda: self.run_logic(True)).pack(side="left", padx=5)
         self.res_txt = tk.Text(self.tabs[1], font=("Consolas", 10)); self.res_txt.pack(fill="both", expand=True)
 
         # TAB 3: MANUAL
@@ -128,11 +128,9 @@ class CCTVApp:
         self.na = tk.StringVar(value="RAID"); ttk.Combobox(fn, textvariable=self.na, values=["RAID", "JBOD"], state="readonly").grid(row=6, column=1)
         ttk.Button(fn, text="ADD TO DATABASE", command=self.add_new_nvr).grid(row=7, columnspan=2, pady=10)
 
-        # Initial Refresh
-        self.refresh_nvr_dropdowns()
-        self.setup_hdds()
-        self.refresh_nvr_list_tab()
+        self.refresh_nvr_dropdowns(); self.setup_hdds(); self.refresh_nvr_list_tab()
 
+    # (Camera and NVR management functions remain identical to V35.1)
     def save_camera(self):
         v = [self.ents[k].get() for k in ["Name", "Qty", "Mbps", "GB"]]
         if all(v): 
@@ -194,49 +192,8 @@ class CCTVApp:
             report += f"  Subtotal: ${ (u['m'][5] + u['h']['cost']):,.2f}\n\n"
         return report
 
-    def run_logic(self, auto):
-        cams = []
-        for i in self.tree.get_children():
-            v = self.tree.item(i)['values']
-            cams.append({"name": str(v[0]), "qty": int(v[1]), "mbps": float(v[2]), "tb": float(v[3])/1024})
-        if not cams: return
-        best_cfg, best_cost = None, float('inf')
-        
-        if auto:
-            mode = self.auto_mode.get()
-            pool = [n for n in self.nvr_list if n[6] == ("JBOD" if mode=="JBOD" else "RAID") and "Holis" not in n[0]]
-            for n_u in range(1, 7):
-                for combo in itertools.combinations_with_replacement(pool, n_u):
-                    hw_c = [{"m": n, "mode": mode} for n in combo]
-                    # Auto still uses simplified logic for speed in combinatorial search
-                    res = self.calc_sub_engine(cams, hw_c, 1.0)
-                    if res:
-                        cost = sum(x['m'][5] + x['h']['cost'] for x in res)
-                        if cost < best_cost: best_cost, best_cfg = cost, {"total": cost, "units": res}
-        else:
-            # --- 99% SWEEP MANUAL OPTIMIZATION ---
-            active_hw = []
-            for nv, mv, _ in self.manual_slots:
-                val = nv.get()
-                if val != "None":
-                    sku = val.split(" (")[0]
-                    match = next((n for n in self.nvr_list if n[1] == sku), None)
-                    if match: active_hw.append({"m": match, "mode": mv.get()})
-            
-            if active_hw:
-                for r in range(1, 100):
-                    ratio = r / 100.0
-                    res = self.calc_sub_engine(cams, active_hw, ratio)
-                    if res:
-                        cost = sum(x['m'][5] + x['h']['cost'] for x in res)
-                        if cost < best_cost: best_cost, best_cfg = cost, {"total": cost, "units": res}
-
-        txt = self.res_txt if auto else self.man_txt
-        txt.delete("1.0", tk.END)
-        if best_cfg: txt.insert("1.0", self.generate_detailed_report(best_cfg, "AUTO" if auto else "MANUAL OPTIMIZED"))
-        else: txt.insert("1.0", "ERROR: Hardware limits exceeded.")
-
-    def calc_sub_engine(self, cams, hw_c, ratio):
+    # --- CORE ENGINE ---
+    def calc_engine(self, cams, hw_c, ratio):
         u_list = []
         cur_cams = [dict(c) for c in cams]
         try: buf_mult = 1 + (float(self.storage_buffer.get()) / 100)
@@ -260,6 +217,50 @@ class CCTVApp:
             u_list.append({"m": hw['m'], "c_total": u_c, "cam_breakdown": u_brk, "mb": u_mb, "tb": u_tb, "h": hd or {"qty":0, "cap":0, "cost":0, "total_tb":0}, "mode": "JBOD" if p==0 else hw['mode']})
         
         return u_list if sum(c['qty'] for c in cur_cams) == 0 else None
+
+    def run_logic(self, auto):
+        cams = []
+        for i in self.tree.get_children():
+            v = self.tree.item(i)['values']
+            cams.append({"name": str(v[0]), "qty": int(v[1]), "mbps": float(v[2]), "tb": float(v[3])/1024})
+        if not cams: return
+        best_cfg, best_cost = None, float('inf')
+        
+        if auto:
+            mode = self.auto_mode.get()
+            pool = [n for n in self.nvr_list if n[6] == ("JBOD" if mode=="JBOD" else "RAID") and "Holis" not in n[0]]
+            # Step through unit counts
+            for n_u in range(1, 7):
+                for combo in itertools.combinations_with_replacement(pool, n_u):
+                    hw_c = [{"m": n, "mode": mode} for n in combo]
+                    # AUTO RATIO SWEEP: Tests multiple distributions to find the best HDD configuration
+                    # We use fewer steps than manual (0.5, 0.6, 0.7, 0.8, 0.9, 1.0) to maintain speed
+                    for r_step in [0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
+                        res = self.calc_engine(cams, hw_c, r_step)
+                        if res:
+                            cost = sum(x['m'][5] + x['h']['cost'] for x in res)
+                            if cost < best_cost: best_cost, best_cfg = cost, {"total": cost, "units": res}
+        else:
+            # MANUAL SWEEP: High-Precision 99% Sweep
+            active_hw = []
+            for nv, mv, _ in self.manual_slots:
+                val = nv.get()
+                if val != "None":
+                    sku = val.split(" (")[0]
+                    match = next((n for n in self.nvr_list if n[1] == sku), None)
+                    if match: active_hw.append({"m": match, "mode": mv.get()})
+            
+            if active_hw:
+                for r in range(1, 100):
+                    res = self.calc_engine(cams, active_hw, r / 100.0)
+                    if res:
+                        cost = sum(x['m'][5] + x['h']['cost'] for x in res)
+                        if cost < best_cost: best_cost, best_cfg = cost, {"total": cost, "units": res}
+
+        txt = self.res_txt if auto else self.man_txt
+        txt.delete("1.0", tk.END)
+        if best_cfg: txt.insert("1.0", self.generate_detailed_report(best_cfg, "AUTO" if auto else "MANUAL OPTIMIZED"))
+        else: txt.insert("1.0", "ERROR: Hardware limits exceeded.")
 
 if __name__ == "__main__":
     root = tk.Tk(); root.geometry("1100x950"); app = CCTVApp(root); root.mainloop()

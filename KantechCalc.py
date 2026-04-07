@@ -46,7 +46,7 @@ def get_best_hdd(required_tb, slots, parity, price_dict):
 class CCTVApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("CCTV MASTER V34.0 - IMPROVED LOAD BALANCING")
+        self.root.title("CCTV MASTER V35.0 - MANUAL 99% OPTIMIZER")
         self.last_report = ""
         self.load_all_data()
         self.setup_ui()
@@ -91,14 +91,12 @@ class CCTVApp:
         ttk.Label(f_a, text=" Buffer %:").pack(side="left")
         ttk.Entry(f_a, textvariable=self.storage_buffer, width=5).pack(side="left", padx=5)
         ttk.Button(f_a, text="RUN AUTO", command=lambda: self.run_logic(True)).pack(side="left", padx=5)
-        ttk.Button(f_a, text="EXPORT", command=self.export_to_file).pack(side="left")
         self.res_txt = tk.Text(self.tabs[1], font=("Consolas", 10)); self.res_txt.pack(fill="both", expand=True)
 
         # TAB 3: MANUAL
         f_m_top = ttk.Frame(self.tabs[2], padding=5); f_m_top.pack(fill="x")
-        ttk.Label(f_m_top, text="Global Storage Buffer %:").pack(side="left")
+        ttk.Label(f_m_top, text="Buffer %:").pack(side="left")
         ttk.Entry(f_m_top, textvariable=self.storage_buffer, width=5).pack(side="left", padx=5)
-        
         self.manual_slots = []
         for i in range(8):
             f = ttk.Frame(self.tabs[2], padding=2); f.pack(fill="x")
@@ -106,29 +104,9 @@ class CCTVApp:
             cb = ttk.Combobox(f, textvariable=nv, width=45, state="readonly"); cb.pack(side="left")
             ttk.Combobox(f, textvariable=mv, values=["RAID 5", "RAID 6", "JBOD"], width=10, state="readonly").pack(side="left", padx=5)
             self.manual_slots.append((nv, mv, cb))
-        btn_m = ttk.Frame(self.tabs[2]); btn_m.pack(pady=5)
-        ttk.Button(btn_m, text="CALCULATE MANUAL", command=lambda: self.run_logic(False)).pack(side="left", padx=5)
-        ttk.Button(btn_m, text="EXPORT", command=self.export_to_file).pack(side="left")
+        ttk.Button(self.tabs[2], text="CALCULATE MANUAL (99% SWEEP)", command=lambda: self.run_logic(False)).pack(pady=5)
         self.man_txt = tk.Text(self.tabs[2], font=("Consolas", 10), bg="#f4f4f4"); self.man_txt.pack(fill="both", expand=True)
         
-        # TAB 5: NVRs
-        self.nvr_canvas = tk.Canvas(self.tabs[4]); self.nvr_canvas.pack(side="left", fill="both", expand=True)
-        self.nvr_scroll = ttk.Scrollbar(self.tabs[4], orient="vertical", command=self.nvr_canvas.yview)
-        self.nvr_scroll.pack(side="right", fill="y")
-        self.nvr_frame = ttk.Frame(self.nvr_canvas)
-        self.nvr_canvas.create_window((0,0), window=self.nvr_frame, anchor="nw")
-        self.nvr_frame.bind("<Configure>", lambda e: self.nvr_canvas.configure(scrollregion=self.nvr_canvas.bbox("all")))
-        self.nvr_canvas.configure(yscrollcommand=self.nvr_scroll.set)
-
-        # TAB 6: ADD NVR
-        fn = ttk.Frame(self.tabs[5], padding=20); fn.pack()
-        self.nf = {}
-        fields = [("Model Name", "Name"), ("Model SKU", "SKU"), ("Channels", "CH"), ("Mbps Limit", "MB"), ("HDD Slots", "Slots"), ("Unit Price", "Price")]
-        for i, (lab, key) in enumerate(fields):
-            ttk.Label(fn, text=lab).grid(row=i, column=0, sticky="w"); e = ttk.Entry(fn); e.grid(row=i, column=1); self.nf[key] = e
-        self.na = tk.StringVar(value="RAID"); ttk.Combobox(fn, textvariable=self.na, values=["RAID", "JBOD"], state="readonly").grid(row=6, column=1)
-        ttk.Button(fn, text="ADD TO DATABASE", command=self.add_new_nvr).grid(row=7, columnspan=2, pady=10)
-
         self.refresh_nvr_dropdowns(); self.setup_hdds(); self.refresh_nvr_list_tab()
 
     def save_camera(self):
@@ -144,7 +122,6 @@ class CCTVApp:
     def export_to_file(self):
         idx = self.nb.index("current")
         content = self.res_txt.get("1.0", tk.END) if idx == 1 else self.man_txt.get("1.0", tk.END)
-        if len(content) < 50: messagebox.showwarning("Warning", "No report to export!"); return
         f = filedialog.asksaveasfilename(defaultextension=".txt", initialfile=f"CCTV_Design_{datetime.now().strftime('%Y%m%d')}.txt")
         if f: 
             with open(f, "w") as file: file.write(content)
@@ -197,39 +174,36 @@ class CCTVApp:
         for i, u in enumerate(cfg['units']):
             report += f"UNIT #{i+1}: {u['m'][0]} ({u['m'][1]})\n{'-'*40}\n"
             report += f"  Mode: {u['mode']} | Load: {(u['mb']/u['m'][3])*100:.1f}%\n"
-            report += f"  Cameras: {u['c_total']} ({', '.join([f'{k}:{v}' for k,v in u['cam_breakdown'].items() if v>0])})\n"
+            report += f"  Cameras: {u['c_total']}\n"
             report += f"  Storage: {u['h']['qty']}x{u['h']['cap']}TB ({u['h']['total_tb']:.1f}TB Usable)\n"
             report += f"  Subtotal: ${ (u['m'][5] + u['h']['cost']):,.2f}\n\n"
-        self.last_report = report
         return report
 
-    def calculate_engine(self, cams, hw_c):
-        """Modified engine to handle mixed unit sizes (Smart Overflow)"""
+    def calculate_engine(self, cams, hw_c, ratio=1.0, even=False):
         u_list = []
         cur_cams = [dict(c) for c in cams]
+        num_units = len(hw_c)
         
         try: buf_mult = 1 + (float(self.storage_buffer.get()) / 100)
         except: buf_mult = 1.0
 
-        # Sort hardware by size (Channels) ascending so we fill small units properly
-        hw_sorted = sorted(hw_c, key=lambda x: x['m'][2])
-
-        for hw in hw_sorted:
+        for i, hw in enumerate(hw_c):
             u_brk, u_mb, u_tb, u_c = {}, 0, 0, 0
-            # How many channels can this unit take?
-            ch_limit = hw['m'][2]
-            mb_limit = hw['m'][3]
-
+            
             for c in cur_cams:
                 if c['qty'] <= 0: continue
-                # Take as much as the unit can handle
-                remaining_ch = ch_limit - u_c
-                take = min(c['qty'], remaining_ch)
                 
-                # Double check Mbps limit
-                if (u_mb + (take * c['mbps'])) > mb_limit:
-                    take = math.floor((mb_limit - u_mb) / c['mbps'])
-                    take = max(0, take)
+                # Allocation Logic
+                if even:
+                    take = math.ceil(c['qty'] / (num_units - i))
+                else:
+                    # Ratio-based for first units, remainder for the last
+                    take = math.floor(c['qty'] * ratio) if i < num_units - 1 else c['qty']
+                
+                # Hard Hardware Constraints
+                take = min(take, hw['m'][2] - u_c) # Channel limit
+                if (u_mb + (take * c['mbps'])) > hw['m'][3]: # Mbps limit
+                    take = max(0, math.floor((hw['m'][3] - u_mb) / c['mbps']))
 
                 u_brk[c['name']] = take
                 u_mb += take * c['mbps']
@@ -242,14 +216,9 @@ class CCTVApp:
             hc, hd = get_best_hdd(u_tb_buffered, hw['m'][4], p, self.hdd_prices)
             
             if not hd and u_tb_buffered > 0.01: return None
-            if u_c == 0 and u_tb_buffered > 0.01: return None # Safety check
-
             u_list.append({"m": hw['m'], "c_total": u_c, "cam_breakdown": u_brk, "mb": u_mb, "tb": u_tb, "h": hd or {"qty":0, "cap":0, "cost":0, "total_tb":0}, "mode": "JBOD" if p==0 else hw['mode']})
 
-        # Check if all cameras were placed
-        if sum(c['qty'] for c in cur_cams) > 0:
-            return None
-            
+        if sum(c['qty'] for c in cur_cams) > 0: return None
         return u_list
 
     def run_logic(self, auto):
@@ -266,28 +235,33 @@ class CCTVApp:
             for n_u in range(1, 7):
                 for combo in itertools.combinations_with_replacement(pool, n_u):
                     hw_c = [{"m": n, "mode": mode} for n in combo]
-                    res = self.calculate_engine(cams, hw_c)
-                    if res:
-                        cost = sum(x['m'][5] + x['h']['cost'] for x in res)
-                        if cost < best_cost: 
-                            best_cost, best_cfg = cost, {"total": cost, "units": res}
+                    for r in [1.0, 0.3, 0.5, 0.7]: # Quick sweep for Auto
+                        res = self.calculate_engine(cams, hw_c, r, r==1.0)
+                        if res:
+                            cost = sum(x['m'][5] + x['h']['cost'] for x in res)
+                            if cost < best_cost: best_cost, best_cfg = cost, {"total": cost, "units": res}
         else:
             active_hw = []
             for nv, mv, _ in self.manual_slots:
                 val = nv.get()
                 if val != "None":
-                    clean_sku = val.split(" (")[0]
-                    match = next((n for n in self.nvr_list if n[1] == clean_sku), None)
+                    sku = val.split(" (")[0]
+                    match = next((n for n in self.nvr_list if n[1] == sku), None)
                     if match: active_hw.append({"m": match, "mode": mv.get()})
 
             if active_hw:
-                res = self.calculate_engine(cams, active_hw)
-                if res: best_cfg = {"total": sum(x['m'][5] + x['h']['cost'] for x in res), "units": res}
+                # Full 1-99% Sweep for Manual Optimization
+                for i in range(1, 101):
+                    r = i / 100.0
+                    res = self.calculate_engine(cams, active_hw, r, r==1.0)
+                    if res:
+                        cost = sum(x['m'][5] + x['h']['cost'] for x in res)
+                        if cost < best_cost: best_cost, best_cfg = cost, {"total": cost, "units": res}
 
         txt = self.res_txt if auto else self.man_txt
         txt.delete("1.0", tk.END)
-        if best_cfg: txt.insert("1.0", self.generate_detailed_report(best_cfg, "AUTO" if auto else "MANUAL"))
-        else: txt.insert("1.0", "ERROR: Hardware limits exceeded (Check Channel Count or Bandwidth).")
+        if best_cfg: txt.insert("1.0", self.generate_detailed_report(best_cfg, "AUTO" if auto else "MANUAL OPTIMIZED"))
+        else: txt.insert("1.0", "ERROR: Hardware limits exceeded.")
 
 if __name__ == "__main__":
     root = tk.Tk(); root.geometry("1100x950"); app = CCTVApp(root); root.mainloop()

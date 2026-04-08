@@ -46,7 +46,7 @@ def get_best_hdd(required_tb, slots, parity, price_dict):
 class CCTVApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("CCTV MASTER V35.2 - PRO EXPORT")
+        self.root.title("CCTV MASTER V35.4 - LOGIC SYNC")
         self.load_all_data()
         self.setup_ui()
 
@@ -91,16 +91,15 @@ class CCTVApp:
         ttk.Label(f_a, text=" Buffer %:").pack(side="left")
         ttk.Entry(f_a, textvariable=self.storage_buffer, width=5).pack(side="left", padx=5)
         ttk.Button(f_a, text="RUN AUTO", command=lambda: self.run_logic(True)).pack(side="left", padx=5)
-        ttk.Button(f_a, text="SAVE REPORT", command=lambda: self.export_txt(self.res_txt)).pack(side="left", padx=5)
+        ttk.Button(f_a, text="EXPORT REPORT", command=lambda: self.export_txt(self.res_txt)).pack(side="left", padx=5)
         self.res_txt = tk.Text(self.tabs[1], font=("Consolas", 10)); self.res_txt.pack(fill="both", expand=True)
 
         # TAB 3: MANUAL
         f_m_top = ttk.Frame(self.tabs[2], padding=5); f_m_top.pack(fill="x")
         ttk.Label(f_m_top, text="Buffer %:").pack(side="left")
         ttk.Entry(f_m_top, textvariable=self.storage_buffer, width=5).pack(side="left", padx=5)
-        ttk.Button(f_m_top, text="CALCULATE MANUAL (99% SWEEP)", command=lambda: self.run_logic(False)).pack(side="left", padx=5)
-        ttk.Button(f_m_top, text="SAVE REPORT", command=lambda: self.export_txt(self.man_txt)).pack(side="left", padx=5)
-        
+        ttk.Button(f_m_top, text="CALC MANUAL", command=lambda: self.run_logic(False)).pack(side="left", padx=5)
+        ttk.Button(f_m_top, text="EXPORT REPORT", command=lambda: self.export_txt(self.man_txt)).pack(side="left", padx=5)
         self.manual_slots = []
         for i in range(8):
             f = ttk.Frame(self.tabs[2], padding=2); f.pack(fill="x")
@@ -108,13 +107,10 @@ class CCTVApp:
             cb = ttk.Combobox(f, textvariable=nv, width=45, state="readonly"); cb.pack(side="left")
             ttk.Combobox(f, textvariable=mv, values=["RAID 5", "RAID 6", "JBOD"], width=10, state="readonly").pack(side="left", padx=5)
             self.manual_slots.append((nv, mv, cb))
-        
         self.man_txt = tk.Text(self.tabs[2], font=("Consolas", 10), bg="#f4f4f4"); self.man_txt.pack(fill="both", expand=True)
 
-        # TAB 4: HDDs
+        # TABS 4-6 remain unchanged from previous stable version
         self.hdd_frame_container = ttk.Frame(self.tabs[3], padding=20); self.hdd_frame_container.pack()
-
-        # TAB 5: NVR LIST
         self.nvr_canvas = tk.Canvas(self.tabs[4]); self.nvr_canvas.pack(side="left", fill="both", expand=True)
         self.nvr_scroll = ttk.Scrollbar(self.tabs[4], orient="vertical", command=self.nvr_canvas.yview)
         self.nvr_scroll.pack(side="right", fill="y")
@@ -122,8 +118,6 @@ class CCTVApp:
         self.nvr_canvas.create_window((0,0), window=self.nvr_frame, anchor="nw")
         self.nvr_frame.bind("<Configure>", lambda e: self.nvr_canvas.configure(scrollregion=self.nvr_canvas.bbox("all")))
         self.nvr_canvas.configure(yscrollcommand=self.nvr_scroll.set)
-
-        # TAB 6: ADD NVR
         fn = ttk.Frame(self.tabs[5], padding=20); fn.pack()
         self.nf = {}
         fields = [("Model Name", "Name"), ("Model SKU", "SKU"), ("Channels", "CH"), ("Mbps Limit", "MB"), ("HDD Slots", "Slots"), ("Unit Price", "Price")]
@@ -132,11 +126,11 @@ class CCTVApp:
         self.na = tk.StringVar(value="RAID"); ttk.Combobox(fn, textvariable=self.na, values=["RAID", "JBOD"], state="readonly").grid(row=6, column=1)
         ttk.Button(fn, text="ADD TO DATABASE", command=self.add_new_nvr).grid(row=7, columnspan=2, pady=10)
 
-        # Initial Refresh
         self.refresh_nvr_dropdowns()
         self.setup_hdds()
         self.refresh_nvr_list_tab()
 
+    # --- UI & DATA MANAGEMENT ---
     def save_camera(self):
         v = [self.ents[k].get() for k in ["Name", "Qty", "Mbps", "GB"]]
         if all(v): 
@@ -186,6 +180,7 @@ class CCTVApp:
         names = ["None"] + [f"{n[1]} ({n[2]} Ch)" for n in self.nvr_list]
         for _, _, cb in self.manual_slots: cb['values'] = names
 
+    # --- REPORTING & EXPORT ---
     def generate_detailed_report(self, cfg, title):
         buf = self.storage_buffer.get()
         report = f"{'='*80}\n{title} DESIGN REPORT (Buffer: {buf}%)\n{'='*80}\n"
@@ -195,55 +190,52 @@ class CCTVApp:
             report += f"UNIT #{i+1}: {u['m'][0]} ({u['m'][1]})\n{'-'*40}\n"
             report += f"  Mode: {u['mode']} | Load: {(u['mb']/u['m'][3])*100:.1f}%\n"
             report += f"  Total Channels Used: {u['c_total']}/{u['m'][2]}\n"
-            
-            # Detailed Camera Assignment
             report += f"  Camera Assignment:\n"
             for cam_name, cam_qty in u['cam_breakdown'].items():
-                if cam_qty > 0:
-                    report += f"    > {cam_name}: {cam_qty} units\n"
-            
+                if cam_qty > 0: report += f"    > {cam_name}: {cam_qty} units\n"
             report += f"  Storage: {u['h']['qty']}x{u['h']['cap']}TB ({u['h']['total_tb']:.1f}TB Usable)\n"
             report += f"  Subtotal: ${ (u['m'][5] + u['h']['cost']):,.2f}\n\n"
         return report
 
     def export_txt(self, widget):
         content = widget.get("1.0", tk.END).strip()
-        if not content or "DESIGN REPORT" not in content:
-            messagebox.showwarning("Empty", "No report content to save.")
+        if "DESIGN REPORT" not in content:
+            messagebox.showwarning("Empty", "No report to save.")
             return
-        
         f = filedialog.asksaveasfilename(defaultextension=".txt", filetypes=[("Text files", "*.txt")])
         if f:
-            with open(f, "w") as file:
-                file.write(content)
-            messagebox.showinfo("Success", "Report exported successfully.")
+            with open(f, "w") as file: file.write(content)
+            messagebox.showinfo("Success", "Report exported.")
 
+    # --- SYNCED LOGIC ENGINE ---
     def run_logic(self, auto):
         cams = []
         for i in self.tree.get_children():
             v = self.tree.item(i)['values']
             cams.append({"name": str(v[0]), "qty": int(v[1]), "mbps": float(v[2]), "tb": float(v[3])/1024})
         if not cams: return
+        
         best_cfg, best_cost = None, float('inf')
         
         if auto:
             mode = self.auto_mode.get()
             pool = [n for n in self.nvr_list if n[6] == ("JBOD" if mode=="JBOD" else "RAID") and "Holis" not in n[0]]
+            # Test up to 6 NVRs in combination
             for n_u in range(1, 7):
                 for combo in itertools.combinations_with_replacement(pool, n_u):
                     hw_c = [{"m": n, "mode": mode} for n in combo]
-                    res = self.calc_sub_engine(cams, hw_c, 1.0)
-                    if res:
-                        cost = sum(x['m'][5] + x['h']['cost'] for x in res)
-                        if cost < best_cost: best_cost, best_cfg = cost, {"total": cost, "units": res}
+                    # Apply 99% SWEEP within Auto Mode for granular splitting
+                    for r in [1.0, 0.75, 0.5, 0.33, 0.25]: # Specific ratios to speed up combinatorial search
+                        res = self.calc_sub_engine(cams, hw_c, r)
+                        if res:
+                            cost = sum(x['m'][5] + x['h']['cost'] for x in res)
+                            if cost < best_cost: best_cost, best_cfg = cost, {"total": cost, "units": res}
         else:
             active_hw = []
             for nv, mv, _ in self.manual_slots:
-                val = nv.get()
-                if val != "None":
-                    sku = val.split(" (")[0]
-                    match = next((n for n in self.nvr_list if n[1] == sku), None)
-                    if match: active_hw.append({"m": match, "mode": mv.get()})
+                val = nv.get(); sku = val.split(" (")[0]
+                match = next((n for n in self.nvr_list if n[1] == sku), None)
+                if match: active_hw.append({"m": match, "mode": mv.get()})
             
             if active_hw:
                 for r in range(1, 100):
@@ -272,7 +264,6 @@ class CCTVApp:
                 take = min(take, hw['m'][2] - u_c)
                 if (u_mb + (take * c['mbps'])) > hw['m'][3]:
                     take = max(0, math.floor((hw['m'][3] - u_mb) / c['mbps']))
-
                 u_brk[c['name']] = take; u_mb += take*c['mbps']; u_tb += take*c['tb']; u_c += take; c['qty'] -= take
 
             p = 0 if hw['m'][6]=="JBOD" else (1 if hw['mode']=="RAID 5" else 2 if hw['mode']=="RAID 6" else 0)

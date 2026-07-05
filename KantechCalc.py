@@ -29,8 +29,6 @@ class DCDevice:
     
     def calculate_totals(self):
         """Calculate readers, inputs, outputs for this DC line"""
-        # Normal Readers = Card Reader + Biometric Reader
-        # Smart Card Readers use independent specialized slots
         readers = self.smart_card + self.fingerprint + self.smart_card_reader
         
         inputs = (self.door_sensor + self.rex_button + self.push_button + 
@@ -139,15 +137,6 @@ class SWHControllerCalculator:
         input_shortage = max(0, dc_inputs - controller_inputs)
         output_shortage = max(0, dc_outputs - controller_outputs)
         
-        result = f"\nI/O Analysis:\n"
-        result += f"  Required: {dc_inputs} inputs, {dc_outputs} outputs\n"
-        result += f"  Controller provides: {controller_inputs} inputs, {controller_outputs} outputs\n"
-        result += f"  Shortage: {input_shortage} inputs, {output_shortage} outputs\n"
-        
-        if input_shortage == 0 and output_shortage == 0:
-            result += "  ✅ No expansion modules needed\n"
-            return {'modules': [], 'cost': 0, 'result': result}
-        
         expansion_modules = []
         expansion_cost = 0
         
@@ -161,10 +150,12 @@ class SWHControllerCalculator:
             expansion_modules.append(f"AS0074-000 (x{as0074_needed})")
             expansion_cost += 395 * as0074_needed
         
-        result += f"  Expansion solution: {expansion_modules}\n"
-        result += f"  Expansion cost: ${expansion_cost}\n"
-        
-        return {'modules': expansion_modules, 'cost': expansion_cost, 'result': result}
+        return {
+            'modules': expansion_modules,
+            'cost': expansion_cost,
+            'input_shortage': input_shortage,
+            'output_shortage': output_shortage
+        }
 
 
 class KantechDCCalculatorGUI:
@@ -245,7 +236,7 @@ class KantechDCCalculatorGUI:
         actions_frame.pack(fill=tk.X, padx=20, pady=10)
         ttk.Button(actions_frame, text="Add DC Line", command=lambda: self.notebook.select(1)).pack(side=tk.LEFT, padx=5)
         ttk.Button(actions_frame, text="Manage Door Types", command=lambda: self.notebook.select(2)).pack(side=tk.LEFT, padx=5)
-        ttk.Button(actions_frame, text="Calculate Kantech", command=lambda: self.notebook.select(3)).pack(side=tk.LEFT, padx=5)
+        ttk.Button(actions_frame, text="Calculate Systems", command=lambda: self.notebook.select(3)).pack(side=tk.LEFT, padx=5)
         
         overview_frame = ttk.LabelFrame(tab, text="System Overview", padding=10)
         overview_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
@@ -296,7 +287,6 @@ class KantechDCCalculatorGUI:
         ttk.Button(button_frame, text="Add Door Type", command=self.show_add_door_type_dialog).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Edit Selected", command=self.edit_selected_door_type).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Delete Selected", command=self.delete_selected_door_type).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Apply to DC Line", command=self.apply_door_type_to_dc).pack(side=tk.LEFT, padx=5)
         
         list_frame = ttk.LabelFrame(tab, text="Door Types List", padding=10)
         list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
@@ -365,7 +355,7 @@ class KantechDCCalculatorGUI:
         self.swh_dc_line_combo = ttk.Combobox(select_frame, textvariable=self.selected_dc_line_var, state='readonly', width=20)
         self.swh_dc_line_combo.pack(side=tk.LEFT, padx=5)
         
-        results_frame = ttk.LabelFrame(parent, text="Calculation Results", padding=10)
+        results_frame = ttk.LabelFrame(parent, text="SWH Metrics Results", padding=10)
         results_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         self.swh_results_text = scrolledtext.ScrolledText(results_frame, height=20)
         self.swh_results_text.pack(fill=tk.BOTH, expand=True)
@@ -513,17 +503,21 @@ class KantechDCCalculatorGUI:
     def _show_dc_device_dialog(self, title: str, device: Optional[DCDevice]):
         win = tk.Toplevel(self.root)
         win.title(title)
-        win.geometry("450x600")
+        win.geometry("450x650")
         win.grab_set()
 
-        # Combine Door Type Dropdown Frame
+        # Combine/Overwrite Option Controls
         dt_frame = ttk.Frame(win)
         dt_frame.grid(row=0, column=0, columnspan=2, padx=10, pady=10, sticky='ew')
-        ttk.Label(dt_frame, text="Combine Door Type:").pack(side=tk.LEFT, padx=5)
         
-        door_type_options = ["None"] + [f"{dt.type_id}: {dt.name}" for dt in self.access_door_types]
-        dt_combo = ttk.Combobox(dt_frame, values=door_type_options, state='readonly', width=30)
-        dt_combo.set("None")
+        combine_var = tk.BooleanVar(value=False)
+        chk_combine = ttk.Checkbutton(dt_frame, text="Combine/Overwrite from Door Type", variable=combine_var)
+        chk_combine.pack(side=tk.LEFT, padx=5)
+        
+        door_type_options = [f"{dt.type_id}: {dt.name}" for dt in self.access_door_types]
+        dt_combo = ttk.Combobox(dt_frame, values=door_type_options, state='readonly', width=25)
+        if door_type_options:
+            dt_combo.set(door_type_options[0])
         dt_combo.pack(side=tk.LEFT, padx=5)
 
         fields = [
@@ -550,9 +544,9 @@ class KantechDCCalculatorGUI:
                 ent.config(state='disabled')
             entries[field] = ent
 
-        def on_door_type_selected(event):
-            sel = dt_combo.get()
-            if sel != "None":
+        def trigger_combination():
+            if combine_var.get() and door_type_options:
+                sel = dt_combo.get()
                 dt_id = int(sel.split(":")[0])
                 selected_dt = next((x for x in self.access_door_types if x.type_id == dt_id), None)
                 if selected_dt:
@@ -562,13 +556,13 @@ class KantechDCCalculatorGUI:
                                 current_val = int(entries[field].get())
                             except ValueError:
                                 current_val = 0
-                                
                             dt_val = getattr(selected_dt.config, field)
-                            # Combine/Add the values together
                             entries[field].delete(0, tk.END)
                             entries[field].insert(0, str(current_val + dt_val))
 
-        dt_combo.bind("<<ComboboxSelected>>", on_door_type_selected)
+        # Dynamically calculate if choice updates or checkbox hits
+        combine_var.trace_add("write", lambda *args: trigger_combination())
+        dt_combo.bind("<<ComboboxSelected>>", lambda e: trigger_combination())
 
         def save():
             try:
@@ -586,7 +580,7 @@ class KantechDCCalculatorGUI:
             except ValueError:
                 messagebox.showerror("Error", "Please enter valid integers.")
 
-        btn = ttk.Button(win, text="Save", command=save)
+        btn = ttk.Button(win, text="Save DC Line", command=save)
         btn.grid(row=len(fields)+1, column=0, columnspan=2, pady=15)
 
     def _show_door_type_dialog(self, title: str, dt: Optional[AccessDoorType]):
@@ -637,15 +631,13 @@ class KantechDCCalculatorGUI:
             try:
                 dt_id = int(ent_id.get())
                 name = ent_name.get()
-                if not name:
-                    return
+                if not name: return
                 data = {f: int(entries[f].get()) for f, _ in fields}
                 if dt:
                     dt.name = name
                     dt.update_config(**data)
                 else:
-                    if any(x.type_id == dt_id for x in self.access_door_types):
-                        return
+                    if any(x.type_id == dt_id for x in self.access_door_types): return
                     new_dt = AccessDoorType(dt_id, name)
                     new_dt.update_config(**data)
                     self.access_door_types.append(new_dt)
@@ -659,7 +651,6 @@ class KantechDCCalculatorGUI:
 
     def _calculate_kantech_for_line(self, dc: DCDevice) -> Tuple[str, dict]:
         totals = dc.calculate_totals()
-        
         req_smart_readers = totals['smart_card_readers']
         req_normal_readers = totals['smart_cards'] + totals['fingerprints']
 
@@ -687,8 +678,7 @@ class KantechDCCalculatorGUI:
                 if score > best_score:
                     best_score = score
                     best_mod = mod
-            if not best_mod:
-                break
+            if not best_mod: break
             modules_needed.append(best_mod['name'])
             modules_cost += best_mod['cost']
             input_shortage = max(0, input_shortage - best_mod['inputs'])
@@ -696,7 +686,6 @@ class KantechDCCalculatorGUI:
 
         total_cost = chosen_ctrl['cost'] + modules_cost
         
-        # RESTORED: Detailed Output Log Breakdown
         summary = f"========================================\n"
         summary += f"DC Line {dc.dc_number} Analysis\n"
         summary += f"========================================\n"
@@ -716,8 +705,7 @@ class KantechDCCalculatorGUI:
         return summary, {'controller': chosen_ctrl['name'], 'modules': modules_needed, 'cost': total_cost}
 
     def calculate_all_kantech(self):
-        if not self.dc_lines:
-            return
+        if not self.dc_lines: return
         self.kantech_results_text.delete(1.0, tk.END)
         self.kantech_all_results = []
         self.kantech_grand_total = 0
@@ -734,8 +722,7 @@ class KantechDCCalculatorGUI:
 
     def calculate_selected_kantech(self):
         sel_str = self.selected_dc_line_var.get()
-        if not sel_str:
-            return
+        if not sel_str: return
         dc_num = int(sel_str.split()[-1])
         dc = next((x for x in self.dc_lines if x.dc_number == dc_num), None)
         if dc:
@@ -747,27 +734,47 @@ class KantechDCCalculatorGUI:
         totals = dc.calculate_totals()
         ctrl = self.swh_calculator.select_controller_for_readers(totals['readers'])
         if not ctrl:
-            return "", {}
+            return f"DC Line {dc.dc_number}: Error - Demand bounds exceeded design matrix.\n\n", {}
+        
         exp = self.swh_calculator.calculate_expansion_for_swh(totals['inputs'], totals['outputs'], ctrl.inputs, ctrl.outputs)
         line_cost = ctrl.price + exp['cost']
-        return f"DC Line {dc.dc_number} SWH: {ctrl.name} - Total: ${line_cost}\n", {'cost': line_cost}
+        
+        # RESTORED Detailed calculated output presentation logic
+        summary = f"========================================\n"
+        summary += f"DC Line {dc.dc_number} SWH Platform Evaluation\n"
+        summary += f"========================================\n"
+        summary += f"Demanded Assets:\n"
+        summary += f"  - Total Network Readers Required : {totals['readers']}\n"
+        summary += f"  - Total Core Inputs Required     : {totals['inputs']}\n"
+        summary += f"  - Total Core Outputs Required    : {totals['outputs']}\n\n"
+        summary += f"Hardware Selection Breakdown:\n"
+        summary += f"  - Chosen Base Node Controller    : {ctrl.name} (${ctrl.price})\n"
+        summary += f"    Provides: {ctrl.readers} readers, {ctrl.inputs} inputs, {ctrl.outputs} outputs\n"
+        summary += f"  - Evaluated Shortage             : {exp['input_shortage']} inputs, {exp['output_shortage']} outputs\n"
+        summary += f"  - Expansion Solution Modules     : {exp['modules'] if exp['modules'] else 'None Required'}\n"
+        summary += f"  - Total Expansion Modules Cost   : ${exp['cost']}\n"
+        summary += f"----------------------------------------\n"
+        summary += f"Net Operational Line Valuation    : ${line_cost}\n\n"
+        
+        return summary, {'controller': ctrl.name, 'modules': exp['modules'], 'cost': line_cost}
 
     def calculate_all_gstar(self):
-        if not self.dc_lines:
-            return
+        if not self.dc_lines: return
         self.swh_results_text.delete(1.0, tk.END)
         gstar_total = 0
+        
+        full_text = "--- COMPLETE DETAILED SWH/GSTAR HARDWARE ANALYSIS ---\n\n"
         for dc in self.dc_lines:
             txt, res = self._calculate_gstar_for_line(dc)
-            self.swh_results_text.insert(tk.END, txt)
+            full_text += txt
             if res:
                 gstar_total += res['cost']
-        self.swh_results_text.insert(tk.END, f"\nTotal SWH: ${gstar_total}")
+        full_text += f"\nAGGREGATE SWH/GSTAR CORE HARDWARE INVESTMENTS: ${gstar_total}\n"
+        self.swh_results_text.insert(tk.END, full_text)
 
     def calculate_selected_gstar(self):
         sel_str = self.selected_dc_line_var.get()
-        if not sel_str:
-            return
+        if not sel_str: return
         dc_num = int(sel_str.split()[-1])
         dc = next((x for x in self.dc_lines if x.dc_number == dc_num), None)
         if dc:
@@ -782,8 +789,7 @@ class KantechDCCalculatorGUI:
         self.kantech_license_results_text.insert(tk.END, f"Total Controllers: {num_controllers}\nLicense cost: ${cost}")
 
     def export_kantech_results(self):
-        if not self.kantech_all_results:
-            return
+        if not self.kantech_all_results: return
         path = filedialog.asksaveasfilename(defaultextension=".csv")
         if path:
             pd.DataFrame(self.kantech_all_results).to_csv(path, index=False)
@@ -792,7 +798,6 @@ class KantechDCCalculatorGUI:
 if __name__ == "__main__":
     app = KantechDCCalculatorGUI()
     
-    # Prepopulating template items
     app.access_door_types.append(AccessDoorType(1, "Standard Secure Profile"))
     app.access_door_types[0].update_config(smart_card=1, door_sensor=1, magnetic_lock=1, rex_button=1)
     

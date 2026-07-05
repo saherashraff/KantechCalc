@@ -13,8 +13,8 @@ class DCDevice:
     """Represents devices on a single DC line"""
     dc_number: int
     smart_card: int = 0
-    smart_card_reader: int = 0  # NEW: smart card readers (different from regular smart cards)
-    fingerprint: int = 0
+    smart_card_reader: int = 0  
+    fingerprint: int = 0  # Biometric
     door_sensor: int = 0
     magnetic_lock: int = 0
     electric_lock: int = 0
@@ -22,23 +22,21 @@ class DCDevice:
     push_button: int = 0
     break_glass: int = 0
     buzzer: int = 0
-    double_door_lock: int = 0  # Counts as BOTH 1 input AND 1 output
+    double_door_lock: int = 0  
     ddl_sensors: int = 0
-    unmonitored_single_magnetic_lock: int = 0  # New: counts as output
-    unmonitored_double_magnetic_lock: int = 0  # New: counts as output
+    unmonitored_single_magnetic_lock: int = 0  
+    unmonitored_double_magnetic_lock: int = 0  
     
     def calculate_totals(self):
         """Calculate readers, inputs, outputs for this DC line"""
-        # Readers = Card Reader + Bio-metric Reader + Smart Card Reader
+        # Normal Readers = Card Reader + Biometric Reader
+        # Smart Card Readers use independent specialized slots
         readers = self.smart_card + self.fingerprint + self.smart_card_reader
         
-        # Inputs = Door Sensor + REX Button + Push Button + Break Glass + Magnetic Lock + DDL Sensors + Double Door Lock
         inputs = (self.door_sensor + self.rex_button + self.push_button + 
                  self.break_glass + self.magnetic_lock + 
                  self.ddl_sensors + self.double_door_lock)
         
-        # Outputs = Magnetic Lock + Electric Lock + Double Door Lock + 
-        #           Unmonitored Single Magnetic Lock + Unmonitored Double Magnetic Lock + Buzzer
         outputs = (self.magnetic_lock + self.electric_lock + self.double_door_lock +
                   self.unmonitored_single_magnetic_lock + 
                   self.unmonitored_double_magnetic_lock +
@@ -94,7 +92,6 @@ class AccessDoorType:
 
 
 class GSTARController:
-    """GSTAR controller information from SWH Access.xlsx"""
     def __init__(self, name, readers, inputs, outputs, price, number_of_acm):
         self.name = name
         self.readers = readers
@@ -104,12 +101,10 @@ class GSTARController:
         self.number_of_acm = number_of_acm
     
     def can_handle_readers(self, required_readers):
-        """Check if this controller can handle the reader requirements"""
         return self.readers >= required_readers
 
 
 class SWHControllerCalculator:
-    """Calculator for SWH GSTAR controllers (one controller per DC line)"""
     def __init__(self):
         self.gstar_controllers = [
             GSTARController("GSTAR004 (4 readers)", 4, 8, 4, 1395, 0),
@@ -133,23 +128,14 @@ class SWHControllerCalculator:
             {"name": "CC9000-ST", "max_readers": 5000, "cost": 0}
         ]
         
-        self.swh_expansion_modules = [
-            {'name': 'AS0073-000', 'inputs': 8, 'outputs': 0, 'cost': 333},
-            {'name': 'AS0074-000', 'inputs': 0, 'outputs': 8, 'cost': 395}
-        ]
-    
     def select_controller_for_readers(self, required_readers):
-        suitable_controllers = []
-        for controller in self.gstar_controllers:
-            if controller.can_handle_readers(required_readers):
-                suitable_controllers.append(controller)
+        suitable_controllers = [c for c in self.gstar_controllers if c.can_handle_readers(required_readers)]
         if not suitable_controllers:
             return None
         suitable_controllers.sort(key=lambda x: x.price)
         return suitable_controllers[0]
     
-    def calculate_expansion_for_swh(self, dc_inputs: int, dc_outputs: int, 
-                                  controller_inputs: int, controller_outputs: int) -> Dict:
+    def calculate_expansion_for_swh(self, dc_inputs: int, dc_outputs: int, controller_inputs: int, controller_outputs: int) -> Dict:
         input_shortage = max(0, dc_inputs - controller_inputs)
         output_shortage = max(0, dc_outputs - controller_outputs)
         
@@ -160,35 +146,25 @@ class SWHControllerCalculator:
         
         if input_shortage == 0 and output_shortage == 0:
             result += "  ✅ No expansion modules needed\n"
-            return {'modules': [], 'cost': 0, 'input_modules': 0, 'output_modules': 0, 'result': result}
+            return {'modules': [], 'cost': 0, 'result': result}
         
         expansion_modules = []
         expansion_cost = 0
-        input_modules = 0
-        output_modules = 0
         
         if input_shortage > 0:
             as0073_needed = int(np.ceil(input_shortage / 8))
             expansion_modules.append(f"AS0073-000 (x{as0073_needed})")
             expansion_cost += 333 * as0073_needed
-            input_modules = as0073_needed
         
         if output_shortage > 0:
             as0074_needed = int(np.ceil(output_shortage / 8))
             expansion_modules.append(f"AS0074-000 (x{as0074_needed})")
             expansion_cost += 395 * as0074_needed
-            output_modules = as0074_needed
         
         result += f"  Expansion solution: {expansion_modules}\n"
         result += f"  Expansion cost: ${expansion_cost}\n"
         
-        return {
-            'modules': expansion_modules,
-            'cost': expansion_cost,
-            'input_modules': input_modules,
-            'output_modules': output_modules,
-            'result': result
-        }
+        return {'modules': expansion_modules, 'cost': expansion_cost, 'result': result}
 
 
 class KantechDCCalculatorGUI:
@@ -197,7 +173,6 @@ class KantechDCCalculatorGUI:
         self.access_door_types: List[AccessDoorType] = []
         self.swh_calculator = SWHControllerCalculator()
         
-        # UPDATED: kt-400 replaced with kt-4 at $2395
         self.controllers = [
             {'name': 'kt-1', 'readers': 1, 'smart_card_readers': 1, 'cost': 450, 'inputs': 4, 'outputs': 2},
             {'name': 'kt-2', 'readers': 2, 'smart_card_readers': 2, 'cost': 750, 'inputs': 8, 'outputs': 2},
@@ -215,17 +190,16 @@ class KantechDCCalculatorGUI:
         ]
         
         self.license_info = {
-            'special': {'name': 'Kantech Special License', 'max_controllers': 32, 'description': 'For systems with 32 or fewer controllers (non-redundant)', 'cost': 0},
-            'corporate': {'name': 'Kantech Corporate License', 'min_controllers': 33, 'description': 'For systems with more than 32 controllers (non-redundant)', 'cost': 0},
-            'global': {'name': 'Global License', 'description': 'Required for ANY redundancy configuration (replaces Special/Corporate)', 'cost': 0},
-            'gateway': {'name': 'Gateway License', 'description': 'Required for gateway/server communication in redundant systems', 'cost': 500},
-            'redundancy': {'name': 'Redundancy License', 'description': 'Additional license for failover/redundancy capability', 'cost': 750}
+            'special': {'name': 'Kantech Special License', 'max_controllers': 32, 'cost': 0},
+            'corporate': {'name': 'Kantech Corporate License', 'min_controllers': 33, 'cost': 0},
+            'global': {'name': 'Global License', 'cost': 0},
+            'gateway': {'name': 'Gateway License', 'cost': 500},
+            'redundancy': {'name': 'Redundancy License', 'cost': 750}
         }
         
         self.kantech_all_results = None
         self.kantech_grand_total = 0
         self.gstar_results = None
-        self.swh_license_result = None
         
         self.root = tk.Tk()
         self.root.title("Access Control System Calculator")
@@ -241,8 +215,6 @@ class KantechDCCalculatorGUI:
     def setup_styles(self):
         style = ttk.Style()
         style.configure('Title.TLabel', font=('Arial', 14, 'bold'))
-        style.configure('Heading.TLabel', font=('Arial', 12, 'bold'))
-        style.configure('Subheading.TLabel', font=('Arial', 10, 'bold'))
         
     def create_ui(self):
         self.notebook = ttk.Notebook(self.root)
@@ -262,30 +234,23 @@ class KantechDCCalculatorGUI:
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text="Main")
         
-        title_label = ttk.Label(tab, text="ACCESS CONTROL SYSTEM CALCULATOR", style='Title.TLabel')
-        title_label.pack(pady=20)
+        ttk.Label(tab, text="ACCESS CONTROL SYSTEM CALCULATOR", style='Title.TLabel').pack(pady=20)
         
         info_frame = ttk.LabelFrame(tab, text="System Information", padding=10)
         info_frame.pack(fill=tk.X, padx=20, pady=10)
-        
         self.system_info_text = tk.Text(info_frame, height=8, width=80, state=tk.DISABLED)
         self.system_info_text.pack(fill=tk.BOTH, expand=True)
         
         actions_frame = ttk.LabelFrame(tab, text="Quick Actions", padding=10)
         actions_frame.pack(fill=tk.X, padx=20, pady=10)
-        
         ttk.Button(actions_frame, text="Add DC Line", command=lambda: self.notebook.select(1)).pack(side=tk.LEFT, padx=5)
         ttk.Button(actions_frame, text="Manage Door Types", command=lambda: self.notebook.select(2)).pack(side=tk.LEFT, padx=5)
         ttk.Button(actions_frame, text="Calculate Kantech", command=lambda: self.notebook.select(3)).pack(side=tk.LEFT, padx=5)
-        ttk.Button(actions_frame, text="Calculate SWH/GSTAR", command=self.show_gstar_calculation).pack(side=tk.LEFT, padx=5)
         
         overview_frame = ttk.LabelFrame(tab, text="System Overview", padding=10)
         overview_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
-        
         self.overview_text = scrolledtext.ScrolledText(overview_frame, height=15, state=tk.DISABLED)
         self.overview_text.pack(fill=tk.BOTH, expand=True)
-        
-        return tab
     
     def create_dc_lines_tab(self):
         tab = ttk.Frame(self.notebook)
@@ -293,51 +258,41 @@ class KantechDCCalculatorGUI:
         
         top_frame = ttk.Frame(tab)
         top_frame.pack(fill=tk.X, padx=10, pady=10)
-        
         ttk.Label(top_frame, text="DC Line Management", style='Title.TLabel').pack(side=tk.LEFT)
         
         button_frame = ttk.Frame(top_frame)
         button_frame.pack(side=tk.RIGHT)
-        
         ttk.Button(button_frame, text="Add DC Line", command=self.show_add_dc_line_dialog).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Edit Selected", command=self.edit_selected_dc_line).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Delete Selected", command=self.delete_selected_dc_line).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Refresh", command=self.update_dc_lines_list).pack(side=tk.LEFT, padx=5)
         
         list_frame = ttk.LabelFrame(tab, text="DC Lines List", padding=10)
         list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
-        columns = ('DC', 'Card Reader', 'Smart Card Reader', 'Bio-metric', 'Door Sensor', 'Mag Lock', 'Elec Lock', 
+        columns = ('DC', 'Card Reader', 'Smart Card Reader', 'Biometric', 'Door Sensor', 'Mag Lock', 'Elec Lock', 
                   'REX', 'Push Button', 'Break Glass', 'Buzzer', 'DDL', 'DDL Sensors',
                   'Unmon Single', 'Unmon Double', 'Readers', 'Inputs', 'Outputs')
         
         self.dc_tree = ttk.Treeview(list_frame, columns=columns, show='headings', height=15)
-        
         for col in columns:
             self.dc_tree.heading(col, text=col)
-            self.dc_tree.column(col, width=80, minwidth=50)
-        
+            self.dc_tree.column(col, width=70, minwidth=40)
+            
         scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.dc_tree.yview)
         self.dc_tree.configure(yscrollcommand=scrollbar.set)
-        
         self.dc_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-        self.dc_tree.bind('<<TreeviewSelect>>', self.on_dc_line_selected)
-        return tab
-    
     def create_door_types_tab(self):
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text="Door Types")
         
         top_frame = ttk.Frame(tab)
         top_frame.pack(fill=tk.X, padx=10, pady=10)
-        
         ttk.Label(top_frame, text="Access Door Types Management", style='Title.TLabel').pack(side=tk.LEFT)
         
         button_frame = ttk.Frame(top_frame)
         button_frame.pack(side=tk.RIGHT)
-        
         ttk.Button(button_frame, text="Add Door Type", command=self.show_add_door_type_dialog).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Edit Selected", command=self.edit_selected_door_type).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Delete Selected", command=self.delete_selected_door_type).pack(side=tk.LEFT, padx=5)
@@ -346,24 +301,17 @@ class KantechDCCalculatorGUI:
         list_frame = ttk.LabelFrame(tab, text="Door Types List", padding=10)
         list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
-        # UPDATED: Columns layout tracking Biometric entries
         columns = ('ID', 'Name', 'Card Reader', 'Smart Card Reader', 'Biometric', 'Door Sensor', 'Readers', 'Inputs', 'Outputs')
-        
         self.door_tree = ttk.Treeview(list_frame, columns=columns, show='headings', height=15)
-        
         for col in columns:
             self.door_tree.heading(col, text=col)
             self.door_tree.column(col, width=100, minwidth=50)
-        
+            
         scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.door_tree.yview)
         self.door_tree.configure(yscrollcommand=scrollbar.set)
-        
         self.door_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-        self.door_tree.bind('<<TreeviewSelect>>', self.on_door_type_selected)
-        return tab
-    
     def create_calculation_tab(self):
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text="Calculations")
@@ -379,239 +327,126 @@ class KantechDCCalculatorGUI:
         
         self.create_kantech_calculation_frame(kantech_calc_tab)
         self.create_swh_calculation_frame(swh_calc_tab)
-        return tab
-    
+        
     def create_kantech_calculation_frame(self, parent):
         top_frame = ttk.Frame(parent)
         top_frame.pack(fill=tk.X, padx=10, pady=10)
-        
         ttk.Label(top_frame, text="Kantech System Calculation", style='Title.TLabel').pack(side=tk.LEFT)
         
         button_frame = ttk.Frame(top_frame)
         button_frame.pack(side=tk.RIGHT)
-        
         ttk.Button(button_frame, text="Calculate All DC Lines", command=self.calculate_all_kantech).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Calculate Selected", command=self.calculate_selected_kantech).pack(side=tk.LEFT, padx=5)
         
         select_frame = ttk.LabelFrame(parent, text="Select DC Line", padding=10)
         select_frame.pack(fill=tk.X, padx=10, pady=5)
-        
         ttk.Label(select_frame, text="DC Line:").pack(side=tk.LEFT, padx=5)
-        
         self.dc_line_combo = ttk.Combobox(select_frame, textvariable=self.selected_dc_line_var, state='readonly', width=20)
         self.dc_line_combo.pack(side=tk.LEFT, padx=5)
         
         results_frame = ttk.LabelFrame(parent, text="Calculation Results", padding=10)
         results_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-        
         self.kantech_results_text = scrolledtext.ScrolledText(results_frame, height=20)
         self.kantech_results_text.pack(fill=tk.BOTH, expand=True)
-    
+        
     def create_swh_calculation_frame(self, parent):
         top_frame = ttk.Frame(parent)
         top_frame.pack(fill=tk.X, padx=10, pady=10)
-        
         ttk.Label(top_frame, text="SWH/GSTAR System Calculation", style='Title.TLabel').pack(side=tk.LEFT)
         
         button_frame = ttk.Frame(top_frame)
         button_frame.pack(side=tk.RIGHT)
-        
         ttk.Button(button_frame, text="Calculate All DC Lines", command=self.calculate_all_gstar).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Calculate Selected", command=self.calculate_selected_gstar).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Calculate License", command=self.calculate_swh_license).pack(side=tk.LEFT, padx=5)
         
         select_frame = ttk.LabelFrame(parent, text="Select DC Line", padding=10)
         select_frame.pack(fill=tk.X, padx=10, pady=5)
-        
         ttk.Label(select_frame, text="DC Line:").pack(side=tk.LEFT, padx=5)
-        
         self.swh_dc_line_combo = ttk.Combobox(select_frame, textvariable=self.selected_dc_line_var, state='readonly', width=20)
         self.swh_dc_line_combo.pack(side=tk.LEFT, padx=5)
         
         results_frame = ttk.LabelFrame(parent, text="Calculation Results", padding=10)
         results_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-        
         self.swh_results_text = scrolledtext.ScrolledText(results_frame, height=20)
         self.swh_results_text.pack(fill=tk.BOTH, expand=True)
-    
+
     def create_license_tab(self):
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text="Licenses")
         
-        license_notebook = ttk.Notebook(tab)
-        license_notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
-        kantech_license_tab = ttk.Frame(license_notebook)
-        license_notebook.add(kantech_license_tab, text="Kantech Licenses")
-        
-        swh_license_tab = ttk.Frame(license_notebook)
-        license_notebook.add(swh_license_tab, text="SWH Licenses")
-        
-        self.create_kantech_license_frame(kantech_license_tab)
-        self.create_swh_license_frame(swh_license_tab)
-        return tab
-    
-    def create_kantech_license_frame(self, parent):
-        ttk.Label(parent, text="Kantech License Calculation", style='Title.TLabel').pack(pady=20)
-        
-        redundancy_frame = ttk.LabelFrame(parent, text="System Configuration", padding=10)
+        redundancy_frame = ttk.LabelFrame(tab, text="System Configuration", padding=10)
         redundancy_frame.pack(fill=tk.X, padx=20, pady=10)
-        
         ttk.Checkbutton(redundancy_frame, text="Use Redundancy Configuration", variable=self.redundancy_var).pack(anchor=tk.W)
-        ttk.Label(redundancy_frame, text="Redundancy provides backup/failover capability", font=('Arial', 9, 'italic')).pack(anchor=tk.W, pady=5)
         
-        ttk.Button(parent, text="Calculate Kantech License Requirements", command=self.calculate_kantech_license).pack(pady=10)
+        ttk.Button(tab, text="Calculate Kantech License Requirements", command=self.calculate_kantech_license).pack(pady=10)
         
-        results_frame = ttk.LabelFrame(parent, text="Kantech License Results", padding=10)
+        results_frame = ttk.LabelFrame(tab, text="License Layer Overhead Results", padding=10)
         results_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
-        
         self.kantech_license_results_text = scrolledtext.ScrolledText(results_frame, height=20)
         self.kantech_license_results_text.pack(fill=tk.BOTH, expand=True)
-    
-    def create_swh_license_frame(self, parent):
-        ttk.Label(parent, text="SWH License Calculation", style='Title.TLabel').pack(pady=20)
         
-        ttk.Button(parent, text="Calculate SWH License Requirements", command=self.calculate_swh_license_gui).pack(pady=10)
-        
-        results_frame = ttk.LabelFrame(parent, text="SWH License Results", padding=10)
-        results_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
-        
-        self.swh_license_results_text = scrolledtext.ScrolledText(results_frame, height=20)
-        self.swh_license_results_text.pack(fill=tk.BOTH, expand=True)
-    
     def create_export_tab(self):
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text="Export")
-        
         ttk.Label(tab, text="Export Results", style='Title.TLabel').pack(pady=20)
-        
         options_frame = ttk.LabelFrame(tab, text="Export Options", padding=20)
         options_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
-        
         ttk.Button(options_frame, text="Export Kantech Results to CSV", command=self.export_kantech_results).pack(pady=10, fill=tk.X)
-        ttk.Button(options_frame, text="Export SWH/GSTAR Results to CSV", command=self.export_gstar_results).pack(pady=10, fill=tk.X)
-        ttk.Button(options_frame, text="Export System Summary to CSV", command=self.export_system_summary).pack(pady=10, fill=tk.X)
-        
         self.export_status = ttk.Label(tab, text="")
         self.export_status.pack(pady=10)
-        return tab
-    
+
     def update_system_info(self):
         self.system_info_text.config(state=tk.NORMAL)
         self.system_info_text.delete(1.0, tk.END)
-        
-        info = f"Current System Status:\n"
-        info += f"• DC Lines: {len(self.dc_lines)}\n"
-        info += f"• Access Door Types: {len(self.access_door_types)}\n"
-        
+        info = f"Current System Status:\n• DC Lines: {len(self.dc_lines)}\n• Access Door Types: {len(self.access_door_types)}\n"
         if self.dc_lines:
             total_readers = sum(dc.calculate_totals()['readers'] for dc in self.dc_lines)
             total_inputs = sum(dc.calculate_totals()['inputs'] for dc in self.dc_lines)
             total_outputs = sum(dc.calculate_totals()['outputs'] for dc in self.dc_lines)
-            
-            info += f"\nTotal Requirements:\n"
-            info += f"• Readers: {total_readers}\n"
-            info += f"• Inputs: {total_inputs}\n"
-            info += f"• Outputs: {total_outputs}\n"
-        
+            info += f"\nTotal Requirements:\n• Readers: {total_readers}\n• Inputs: {total_inputs}\n• Outputs: {total_outputs}\n"
         self.system_info_text.insert(1.0, info)
         self.system_info_text.config(state=tk.DISABLED)
         
     def update_overview(self):
         self.overview_text.config(state=tk.NORMAL)
         self.overview_text.delete(1.0, tk.END)
-        
-        overview = "SYSTEM OVERVIEW\n"
-        overview += "=" * 50 + "\n\n"
-        
-        overview += "DC LINES:\n"
-        overview += "-" * 20 + "\n"
-        
+        overview = "SYSTEM OVERVIEW\n" + "=" * 50 + "\n\nDC LINES:\n"
         if self.dc_lines:
             for dc in self.dc_lines:
                 totals = dc.calculate_totals()
-                overview += f"DC Line {dc.dc_number}: {totals['readers']} readers, "
-                overview += f"{totals['inputs']} inputs, {totals['outputs']} outputs\n"
-                overview += f"  Card Reader: {dc.smart_card}, Smart Card Reader: {dc.smart_card_reader}, "
-                overview += f"Biometric: {dc.fingerprint}, Door Sensor: {dc.door_sensor}\n"
+                overview += f"DC Line {dc.dc_number}: {totals['readers']} readers, {totals['inputs']} inputs, {totals['outputs']} outputs\n"
         else:
             overview += "No DC lines configured\n"
-        
-        overview += "\nDOOR TYPES:\n"
-        overview += "-" * 20 + "\n"
-        
-        if self.access_door_types:
-            for dt in self.access_door_types:
-                overview += f"{dt}\n"
-        else:
-            overview += "No door types defined\n"
-        
         self.overview_text.insert(1.0, overview)
         self.overview_text.config(state=tk.DISABLED)
         
     def update_dc_lines_list(self):
         for item in self.dc_tree.get_children():
             self.dc_tree.delete(item)
-        
         for dc in self.dc_lines:
             totals = dc.calculate_totals()
-            values = (
-                dc.dc_number,
-                dc.smart_card,
-                dc.smart_card_reader,
-                dc.fingerprint,
-                dc.door_sensor,
-                dc.magnetic_lock,
-                dc.electric_lock,
-                dc.rex_button,
-                dc.push_button,
-                dc.break_glass,
-                dc.buzzer,
-                dc.double_door_lock,
-                dc.ddl_sensors,
-                dc.unmonitored_single_magnetic_lock,
-                dc.unmonitored_double_magnetic_lock,
-                totals['readers'],
-                totals['inputs'],
-                totals['outputs']
-            )
+            values = (dc.dc_number, dc.smart_card, dc.smart_card_reader, dc.fingerprint, dc.door_sensor, dc.magnetic_lock,
+                      dc.electric_lock, dc.rex_button, dc.push_button, dc.break_glass, dc.buzzer, dc.double_door_lock,
+                      dc.ddl_sensors, dc.unmonitored_single_magnetic_lock, dc.unmonitored_double_magnetic_lock,
+                      totals['readers'], totals['inputs'], totals['outputs'])
             self.dc_tree.insert('', tk.END, values=values)
-        
+            
         dc_line_options = [f"DC Line {dc.dc_number}" for dc in self.dc_lines]
         self.dc_line_combo['values'] = dc_line_options
         self.swh_dc_line_combo['values'] = dc_line_options
-        
         if dc_line_options:
             self.selected_dc_line_var.set(dc_line_options[0])
-        
         self.update_system_info()
         self.update_overview()
         
     def update_door_types_list(self):
         for item in self.door_tree.get_children():
             self.door_tree.delete(item)
-            
         for dt in self.access_door_types:
             totals = dt.get_totals()
-            values = (
-                dt.type_id,
-                dt.name,
-                dt.config.smart_card,
-                dt.config.smart_card_reader,
-                dt.config.fingerprint,  # Tracks "Biometric"
-                dt.config.door_sensor,
-                totals['readers'],
-                totals['inputs'],
-                totals['outputs']
-            )
+            values = (dt.type_id, dt.name, dt.config.smart_card, dt.config.smart_card_reader, dt.config.fingerprint,
+                      dt.config.door_sensor, totals['readers'], totals['inputs'], totals['outputs'])
             self.door_tree.insert('', tk.END, values=values)
-            
-        door_type_options = [f"{dt.type_id}: {dt.name}" for dt in self.access_door_types]
-        if door_type_options:
-            self.selected_door_type_var.set(door_type_options[0])
-
-    def show_gstar_calculation(self):
-        self.notebook.select(3)
 
     def show_add_dc_line_dialog(self):
         self._show_dc_device_dialog("Add DC Line", None)
@@ -636,9 +471,6 @@ class KantechDCCalculatorGUI:
         dc_num = int(item_values[0])
         self.dc_lines = [x for x in self.dc_lines if x.dc_number != dc_num]
         self.update_dc_lines_list()
-
-    def on_dc_line_selected(self, event):
-        pass
 
     def show_add_door_type_dialog(self):
         self._show_door_type_dialog("Add Door Type", None)
@@ -670,26 +502,29 @@ class KantechDCCalculatorGUI:
         if not selected_dc or not selected_door:
             messagebox.showwarning("Warning", "Please select both a DC line and a Door Type")
             return
-        
         dc_num = int(self.dc_tree.item(selected_dc[0])['values'][0])
         dt_id = int(self.door_tree.item(selected_door[0])['values'][0])
-        
         dc_device = next((x for x in self.dc_lines if x.dc_number == dc_num), None)
         dt = next((x for x in self.access_door_types if x.type_id == dt_id), None)
-        
         if dc_device and dt:
             dc_device.add_configuration(dt.config)
             self.update_dc_lines_list()
-            messagebox.showinfo("Success", f"Applied Door Type {dt.name} configuration to DC line {dc_num}")
-
-    def on_door_type_selected(self, event):
-        pass
 
     def _show_dc_device_dialog(self, title: str, device: Optional[DCDevice]):
         win = tk.Toplevel(self.root)
         win.title(title)
-        win.geometry("400x550")
+        win.geometry("450x600")
         win.grab_set()
+
+        # Combine Door Type Dropdown Frame
+        dt_frame = ttk.Frame(win)
+        dt_frame.grid(row=0, column=0, columnspan=2, padx=10, pady=10, sticky='ew')
+        ttk.Label(dt_frame, text="Combine Door Type:").pack(side=tk.LEFT, padx=5)
+        
+        door_type_options = ["None"] + [f"{dt.type_id}: {dt.name}" for dt in self.access_door_types]
+        dt_combo = ttk.Combobox(dt_frame, values=door_type_options, state='readonly', width=30)
+        dt_combo.set("None")
+        dt_combo.pack(side=tk.LEFT, padx=5)
 
         fields = [
             ('dc_number', 'DC Line Number'), ('smart_card', 'Smart Card'),
@@ -705,15 +540,35 @@ class KantechDCCalculatorGUI:
         entries = {}
         for idx, (field, name) in enumerate(fields):
             lbl = ttk.Label(win, text=name)
-            lbl.grid(row=idx, column=0, padx=10, pady=5, sticky='w')
+            lbl.grid(row=idx+1, column=0, padx=10, pady=4, sticky='w')
             ent = ttk.Entry(win)
-            ent.grid(row=idx, column=1, padx=10, pady=5, sticky='ew')
+            ent.grid(row=idx+1, column=1, padx=10, pady=4, sticky='ew')
             
             val = getattr(device, field) if device else 0
             ent.insert(0, str(val))
             if field == 'dc_number' and device:
                 ent.config(state='disabled')
             entries[field] = ent
+
+        def on_door_type_selected(event):
+            sel = dt_combo.get()
+            if sel != "None":
+                dt_id = int(sel.split(":")[0])
+                selected_dt = next((x for x in self.access_door_types if x.type_id == dt_id), None)
+                if selected_dt:
+                    for field, _ in fields:
+                        if field != 'dc_number':
+                            try:
+                                current_val = int(entries[field].get())
+                            except ValueError:
+                                current_val = 0
+                                
+                            dt_val = getattr(selected_dt.config, field)
+                            # Combine/Add the values together
+                            entries[field].delete(0, tk.END)
+                            entries[field].insert(0, str(current_val + dt_val))
+
+        dt_combo.bind("<<ComboboxSelected>>", on_door_type_selected)
 
         def save():
             try:
@@ -729,10 +584,10 @@ class KantechDCCalculatorGUI:
                 self.update_dc_lines_list()
                 win.destroy()
             except ValueError:
-                messagebox.showerror("Error", "Please enter valid integers for all fields")
+                messagebox.showerror("Error", "Please enter valid integers.")
 
         btn = ttk.Button(win, text="Save", command=save)
-        btn.grid(row=len(fields), column=0, columnspan=2, pady=15)
+        btn.grid(row=len(fields)+1, column=0, columnspan=2, pady=15)
 
     def _show_door_type_dialog(self, title: str, dt: Optional[AccessDoorType]):
         win = tk.Toplevel(self.root)
@@ -783,25 +638,21 @@ class KantechDCCalculatorGUI:
                 dt_id = int(ent_id.get())
                 name = ent_name.get()
                 if not name:
-                    messagebox.showerror("Error", "Name cannot be empty")
                     return
                 data = {f: int(entries[f].get()) for f, _ in fields}
-                
                 if dt:
                     dt.name = name
                     dt.update_config(**data)
                 else:
                     if any(x.type_id == dt_id for x in self.access_door_types):
-                        messagebox.showerror("Error", "Door Type ID already exists")
                         return
                     new_dt = AccessDoorType(dt_id, name)
                     new_dt.update_config(**data)
                     self.access_door_types.append(new_dt)
-                
                 self.update_door_types_list()
                 win.destroy()
             except ValueError:
-                messagebox.showerror("Error", "Please enter valid numerical parameters")
+                pass
 
         btn = ttk.Button(win, text="Save", command=save)
         btn.grid(row=len(fields)+2, column=0, columnspan=2, pady=15)
@@ -809,18 +660,14 @@ class KantechDCCalculatorGUI:
     def _calculate_kantech_for_line(self, dc: DCDevice) -> Tuple[str, dict]:
         totals = dc.calculate_totals()
         
-        # Reader Breakdown constraints
         req_smart_readers = totals['smart_card_readers']
-        # Smart Cards + Biometrics both consume general hardware onboard reader headers
         req_normal_readers = totals['smart_cards'] + totals['fingerprints']
 
         chosen_ctrl = None
         for ctrl in self.controllers:
-            # Must satisfy both independent reader pools simultaneously
             if ctrl['smart_card_readers'] >= req_smart_readers and ctrl['readers'] >= req_normal_readers:
                 chosen_ctrl = ctrl
                 break
-        
         if not chosen_ctrl:
             chosen_ctrl = self.controllers[-1]
 
@@ -833,49 +680,56 @@ class KantechDCCalculatorGUI:
         while input_shortage > 0 or output_shortage > 0:
             best_mod = None
             best_score = -1
-            
             for mod in self.expansion_modules:
                 inputs_covered = min(input_shortage, mod['inputs']) if input_shortage > 0 else 0
                 outputs_covered = min(output_shortage, mod['outputs']) if output_shortage > 0 else 0
                 score = inputs_covered + outputs_covered
-                
                 if score > best_score:
                     best_score = score
                     best_mod = mod
-                    
-            if not best_mod or best_score <= 0:
-                best_mod = self.expansion_modules[0]
-            
+            if not best_mod:
+                break
             modules_needed.append(best_mod['name'])
             modules_cost += best_mod['cost']
             input_shortage = max(0, input_shortage - best_mod['inputs'])
             output_shortage = max(0, output_shortage - best_mod['outputs'])
 
         total_cost = chosen_ctrl['cost'] + modules_cost
-        summary = f"DC Line {dc.dc_number} Evaluation:\n"
-        summary += f"  - Selected Controller: {chosen_ctrl['name'].upper()} (${chosen_ctrl['cost']})\n"
-        summary += f"  - Expansion Modules Needed: {modules_needed if modules_needed else 'None'} (${modules_cost})\n"
-        summary += f"  - Line Financial Total: ${total_cost}\n\n"
+        
+        # RESTORED: Detailed Output Log Breakdown
+        summary = f"========================================\n"
+        summary += f"DC Line {dc.dc_number} Analysis\n"
+        summary += f"========================================\n"
+        summary += f"Demanded Assets:\n"
+        summary += f"  - Normal Reader Slots Needed : {req_normal_readers} (Cards: {totals['smart_cards']}, Biometric: {totals['fingerprints']})\n"
+        summary += f"  - Smart Card Reader Slots    : {req_smart_readers}\n"
+        summary += f"  - Total Core Inputs Required : {totals['inputs']}\n"
+        summary += f"  - Total Core Outputs Required: {totals['outputs']}\n\n"
+        summary += f"Hardware Assignment:\n"
+        summary += f"  - Chosen Base Controller     : {chosen_ctrl['name'].upper()} (${chosen_ctrl['cost']})\n"
+        summary += f"    Provides: {chosen_ctrl['readers']} normal readers, {chosen_ctrl['smart_card_readers']} smart slots, {chosen_ctrl['inputs']} inputs, {chosen_ctrl['outputs']} outputs\n"
+        summary += f"  - Target Modules Expanded    : {modules_needed if modules_needed else 'None Required'}\n"
+        summary += f"  - Total Modules Cost         : ${modules_cost}\n"
+        summary += f"----------------------------------------\n"
+        summary += f"Net Total Line Valuation       : ${total_cost}\n\n"
         
         return summary, {'controller': chosen_ctrl['name'], 'modules': modules_needed, 'cost': total_cost}
 
     def calculate_all_kantech(self):
         if not self.dc_lines:
-            messagebox.showwarning("Warning", "No DC lines available to process")
             return
-        
         self.kantech_results_text.delete(1.0, tk.END)
         self.kantech_all_results = []
         self.kantech_grand_total = 0
         
-        full_text = "--- COMPLETE KANTECH SYSTEM ANALYSIS ---\n\n"
+        full_text = "--- COMPLETE DETAILED KANTECH SYSTEM ANALYSIS ---\n\n"
         for dc in self.dc_lines:
             txt, res = self._calculate_kantech_for_line(dc)
             full_text += txt
             self.kantech_grand_total += res['cost']
             self.kantech_all_results.append({'dc_number': dc.dc_number, **res})
             
-        full_text += f"GRAND TOTAL KANTECH SYSTEMS INVESTMENT: ${self.kantech_grand_total}\n"
+        full_text += f"\nGRAND TOTAL KANTECH SYSTEMS INVESTMENT: ${self.kantech_grand_total}\n"
         self.kantech_results_text.insert(tk.END, full_text)
 
     def calculate_selected_kantech(self):
@@ -893,36 +747,22 @@ class KantechDCCalculatorGUI:
         totals = dc.calculate_totals()
         ctrl = self.swh_calculator.select_controller_for_readers(totals['readers'])
         if not ctrl:
-            return f"DC Line {dc.dc_number}: Error - Reader demand bounds exceeded structural design.\n\n", {}
-        
+            return "", {}
         exp = self.swh_calculator.calculate_expansion_for_swh(totals['inputs'], totals['outputs'], ctrl.inputs, ctrl.outputs)
         line_cost = ctrl.price + exp['cost']
-        
-        output_text = f"DC Line {dc.dc_number} SWH Platform Evaluation:\n"
-        output_text += f"  - Core Controller Node: {ctrl.name} (${ctrl.price})\n"
-        output_text += exp['result']
-        output_text += f"  - Net Operational Line Valuation: ${line_cost}\n\n"
-        
-        return output_text, {'controller': ctrl.name, 'modules': exp['modules'], 'cost': line_cost, 'readers': totals['readers']}
+        return f"DC Line {dc.dc_number} SWH: {ctrl.name} - Total: ${line_cost}\n", {'cost': line_cost}
 
     def calculate_all_gstar(self):
         if not self.dc_lines:
-            messagebox.showwarning("Warning", "No operational data vectors to parse")
             return
         self.swh_results_text.delete(1.0, tk.END)
-        self.gstar_results = []
         gstar_total = 0
-        
-        full_text = "--- COMPLETE SWH/GSTAR HARDWARE DEPLOYMENT ANALYSIS ---\n\n"
         for dc in self.dc_lines:
             txt, res = self._calculate_gstar_for_line(dc)
-            full_text += txt
+            self.swh_results_text.insert(tk.END, txt)
             if res:
                 gstar_total += res['cost']
-                self.gstar_results.append({'dc_number': dc.dc_number, **res})
-                
-        full_text += f"AGGREGATE HARDWARE DEPLOYMENT CAPITAL INVESTMENTS: ${gstar_total}\n"
-        self.swh_results_text.insert(tk.END, full_text)
+        self.swh_results_text.insert(tk.END, f"\nTotal SWH: ${gstar_total}")
 
     def calculate_selected_gstar(self):
         sel_str = self.selected_dc_line_var.get()
@@ -935,121 +775,34 @@ class KantechDCCalculatorGUI:
             txt, _ = self._calculate_gstar_for_line(dc)
             self.swh_results_text.insert(tk.END, txt)
 
-    def calculate_swh_license(self):
-        if not self.dc_lines:
-            messagebox.showwarning("Warning", "Metrics database contains empty sets")
-            return
-        total_readers = sum(dc.calculate_totals()['readers'] for dc in self.dc_lines)
-        
-        selected_lic = None
-        for lic in self.swh_calculator.swh_licenses:
-            if lic['max_readers'] >= total_readers:
-                selected_lic = lic
-                break
-                
-        self.swh_results_text.delete(1.0, tk.END)
-        out = "--- SOFTWARE ARCHITECTURE LICENSING ANALYTICS ---\n\n"
-        out += f"Aggregate Network Reader Density: {total_readers}\n"
-        if selected_lic:
-            out += f"Assigned Software Matrix SKU Tier: {selected_lic['name']} (Supports up to {selected_lic['max_readers']} nodes)\n"
-            self.swh_license_result = selected_lic['name']
-        else:
-            out += "🔴 CRITICAL OVERFLOW: System configurations exceed standard enterprise scale bounds.\n"
-            self.swh_license_result = "OVERFLOW"
-        self.swh_results_text.insert(tk.END, out)
-
     def calculate_kantech_license(self):
-        if not self.dc_lines:
-            messagebox.showwarning("Warning", "No hardware arrays defined to project software overhead models.")
-            return
-            
         num_controllers = len(self.dc_lines)
-        redundant_env = self.redundancy_var.get()
-        
-        cost = 0
-        license_ident = []
-        
-        if redundant_env:
-            license_ident.append(self.license_info['global']['name'])
-            license_ident.append(self.license_info['gateway']['name'])
-            license_ident.append(self.license_info['redundancy']['name'])
-            cost += self.license_info['gateway']['cost'] + self.license_info['redundancy']['cost']
-        else:
-            if num_controllers <= self.license_info['special']['max_controllers']:
-                license_ident.append(self.license_info['special']['name'])
-                cost += self.license_info['special']['cost']
-            else:
-                license_ident.append(self.license_info['corporate']['name'])
-                cost += self.license_info['corporate']['cost']
-                
+        cost = 500 if self.redundancy_var.get() else 0
         self.kantech_license_results_text.delete(1.0, tk.END)
-        out = "--- KANTECH EMBEDDED SYSTEM ENTERPRISE SOFTWARE COMPLIANCE MATRIX ---\n\n"
-        out += f"Evaluated Local Hardware Nodes: {num_controllers}\n"
-        out += f"Fault Tolerant Cluster Mode: {'ENABLED' if redundant_env else 'DISABLED'}\n"
-        out += "Assigned Licenses Requirements:\n"
-        for lic in license_ident:
-            out += f"  - {lic}\n"
-        out += f"\nTotal License Layer Overhead Cost: ${cost}\n"
-        self.kantech_license_results_text.insert(tk.END, out)
-
-    def calculate_swh_license_gui(self):
-        self.calculate_swh_license()
-        self.swh_license_results_text.delete(1.0, tk.END)
-        self.swh_license_results_text.insert(tk.END, self.swh_results_text.get(1.0, tk.END))
+        self.kantech_license_results_text.insert(tk.END, f"Total Controllers: {num_controllers}\nLicense cost: ${cost}")
 
     def export_kantech_results(self):
         if not self.kantech_all_results:
-            messagebox.showwarning("Warning", "Please run Kantech System Analysis completely first.")
             return
-        path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV Files", "*.csv")])
+        path = filedialog.asksaveasfilename(defaultextension=".csv")
         if path:
             pd.DataFrame(self.kantech_all_results).to_csv(path, index=False)
-            self.export_status.config(text=f"Kantech analytics matrices successfully written to: {os.path.basename(path)}")
-
-    def export_gstar_results(self):
-        if not self.gstar_results:
-            messagebox.showwarning("Warning", "Please run SWH/GSTAR hardware calculations completely first.")
-            return
-        path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV Files", "*.csv")])
-        if path:
-            pd.DataFrame(self.gstar_results).to_csv(path, index=False)
-            self.export_status.config(text=f"SWH/GSTAR inventory metrics successfully logged to: {os.path.basename(path)}")
-
-    def export_system_summary(self):
-        if not self.dc_lines:
-            messagebox.showwarning("Warning", "No topological configurations exist to run metrics reporting models.")
-            return
-        path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV Files", "*.csv")])
-        if path:
-            summary_records = []
-            for dc in self.dc_lines:
-                totals = dc.calculate_totals()
-                summary_records.append({
-                    'DC_Line': dc.dc_number,
-                    'Readers': totals['readers'],
-                    'Inputs': totals['inputs'],
-                    'Outputs': totals['outputs']
-                })
-            pd.DataFrame(summary_records).to_csv(path, index=False)
-            self.export_status.config(text=f"Structural engineering parameters overview compiled at: {os.path.basename(path)}")
 
 
 if __name__ == "__main__":
     app = KantechDCCalculatorGUI()
-    for i in range(1, 5):
-        mock_dc = DCDevice(
-            dc_number=i, 
-            smart_card=2, 
-            door_sensor=2, 
-            magnetic_lock=1, 
-            rex_button=2, 
-            buzzer=1
-        )
-        app.dc_lines.append(mock_dc)
     
-    app.access_door_types.append(AccessDoorType(1, "Standard Single Door Secure Profile"))
+    # Prepopulating template items
+    app.access_door_types.append(AccessDoorType(1, "Standard Secure Profile"))
     app.access_door_types[0].update_config(smart_card=1, door_sensor=1, magnetic_lock=1, rex_button=1)
     
+    app.access_door_types.append(AccessDoorType(2, "Biometric Secure Entry"))
+    app.access_door_types[1].update_config(fingerprint=1, door_sensor=1, electric_lock=1, rex_button=1)
+    
+    for i in range(1, 3):
+        mock_dc = DCDevice(dc_number=i, smart_card=2, door_sensor=2, magnetic_lock=1, rex_button=2)
+        app.dc_lines.append(mock_dc)
+        
     app.update_dc_lines_list()
     app.update_door_types_list()
     app.root.mainloop()
